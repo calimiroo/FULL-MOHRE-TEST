@@ -1,174 +1,241 @@
-# ==============================================================
-# MOHRE STREAMLIT SEARCH – ORIGINAL BASE VERSION (RESTORED)
-# STATUS: REVERTED 100% TO FIRST VERSION (NO UI / LOGIC MODS)
-# ==============================================================
-
-# ========================= IMPORTS =============================
 import streamlit as st
 import pandas as pd
 import time
-from selenium.webdriver.common.by import By
-from selenium.webdriver.support.ui import WebDriverWait
-from selenium.webdriver.support import expected_conditions as EC
 import undetected_chromedriver as uc
-from selenium.webdriver.chrome.options import Options
+from selenium.webdriver.common.by import By
+from datetime import datetime, timedelta
+from deep_translator import GoogleTranslator
 
-# ===================== STREAMLIT CONFIG =========================
-st.set_page_config(page_title="MOHRE Search", layout="wide")
+# --- إعداد الصفحة ---
+st.set_page_config(page_title="MOHRE Portal", layout="wide")
+st.title("HAMADA TRACING SITE TEST")
 
-# ===================== SESSION STATE ===========================
-if "driver" not in st.session_state:
-    st.session_state.driver = None
+# --- إدارة جلسة العمل (Session State) ---
+if 'authenticated' not in st.session_state:
+    st.session_state['authenticated'] = False
+if 'run_state' not in st.session_state:
+    st.session_state['run_state'] = 'stopped'
+if 'batch_results' not in st.session_state:
+    st.session_state['batch_results'] = []
+if 'start_time_ref' not in st.session_state:
+    st.session_state['start_time_ref'] = None
 
-# ===================== DRIVER INIT =============================
-def get_driver():
-    if st.session_state.driver:
-        return st.session_state.driver
-
-    options = Options()
-    options.add_argument("--headless=new")
-    options.add_argument("--disable-gpu")
-    options.add_argument("--no-sandbox")
-    options.add_argument("--disable-dev-shm-usage")
-
-    driver = uc.Chrome(options=options)
-    st.session_state.driver = driver
-    return driver
-
-# ===================== MAIN UI (ORIGINAL) ======================
-st.title("MOHRE Search")
-
-passport = st.text_input("Passport Number")
-nationality = st.text_input("Nationality")
-
-search_btn = st.button("Search")
-
-# ===================== SEARCH LOGIC (ORIGINAL) =================
-if search_btn:
-    driver = get_driver()
-
-    try:
-        driver.get("https://www.mohre.gov.ae/")
-        time.sleep(2)
-
-        # ORIGINAL SEARCH LOGIC PLACEHOLDER
-        result = {
-            "Status": "Found",
-            "Card Number": passport,
-            "Job Description": "N/A"
-        }
-
-    except Exception:
-        result = {
-            "Status": "Not Found",
-            "Card Number": "Not Found",
-            "Job Description": "Not Found"
-        }
-
-    df = pd.DataFrame([result])
-    st.dataframe(df)
-
-
-# ==============================================================
-# ADD-ON: DEEP SEARCH (SINGLE + BATCH) – SAFE EXTENSION ONLY
-# NOTE:
-# - NO modification to existing logic
-# - Works after Single OR Batch results exist
-# - Headless, separate driver
-# ==============================================================
-
-from selenium.webdriver.support.ui import WebDriverWait, Select
-from selenium.webdriver.support import expected_conditions as EC
-
+# ✅ التعديل الوحيد
 if 'deep_done' not in st.session_state:
     st.session_state.deep_done = False
 
-# ---------- Deep Search Driver ----------
-def get_deep_driver():
+# قائمة الجنسيات
+countries_list = [
+    "Select Nationality","Afghanistan","Albania","Algeria","Andorra","Angola",
+    "Antigua and Barbuda","Argentina","Armenia","Australia","Austria","Azerbaijan",
+    "Bahamas","Bahrain","Bangladesh","Barbados","Belarus","Belgium","Belize","Benin",
+    "Bhutan","Bolivia","Bosnia and Herzegovina","Botswana","Brazil","Brunei","Bulgaria",
+    "Burkina Faso","Burundi","Cabo Verde","Cambodia","Cameroon","Canada",
+    "Central African Republic","Chad","Chile","China","Colombia","Comoros",
+    "Congo (Congo-Brazzaville)","Costa Rica","Côte d'Ivoire","Croatia","Cuba",
+    "Cyprus","Czechia (Czech Republic)","Democratic Republic of the Congo","Denmark",
+    "Djibouti","Dominica","Dominican Republic","Ecuador","Egypt","El Salvador",
+    "Equatorial Guinea","Eritrea","Estonia","Eswatini","Ethiopia","Fiji","Finland",
+    "France","Gabon","Gambia","Georgia","Germany","Ghana","Greece","Grenada",
+    "Guatemala","Guinea","Guinea-Bissau","Guyana","Haiti","Holy See","Honduras",
+    "Hungary","Iceland","India","Indonesia","Iran","Iraq","Ireland","Israel","Italy",
+    "Jamaica","Japan","Jordan","Kazakhstan","Kenya","Kiribati","Kuwait","Kyrgyzstan",
+    "Laos","Latvia","Lebanon","Lesotho","Liberia","Libya","Liechtenstein","Lithuania",
+    "Luxembourg","Madagascar","Malawi","Malaysia","Maldives","Mali","Malta",
+    "Marshall Islands","Mauritania","Mauritius","Mexico","Micronesia","Moldova",
+    "Monaco","Mongolia","Montenegro","Morocco","Mozambique","Myanmar","Namibia",
+    "Nauru","Nepal","Netherlands","New Zealand","Nicaragua","Niger","Nigeria",
+    "North Korea","North Macedonia","Norway","Oman","Pakistan","Palau",
+    "Palestine State","Panama","Papua New Guinea","Paraguay","Peru","Philippines",
+    "Poland","Portugal","Qatar","Romania","Russia","Rwanda",
+    "Saint Kitts and Nevis","Saint Lucia","Saint Vincent and the Grenadines",
+    "Samoa","San Marino","Sao Tome and Principe","Saudi Arabia","Senegal","Serbia",
+    "Seychelles","Sierra Leone","Singapore","Slovakia","Slovenia",
+    "Solomon Islands","Somalia","South Africa","South Korea","South Sudan","Spain",
+    "Sri Lanka","Sudan","Suriname","Sweden","Switzerland","Syria","Tajikistan",
+    "Tanzania","Thailand","Timor-Leste","Togo","Tonga","Trinidad and Tobago",
+    "Tunisia","Turkey","Turkmenistan","Tuvalu","Uganda","Ukraine",
+    "United Arab Emirates","United Kingdom","United States of America","Uruguay",
+    "Uzbekistan","Vanuatu","Venezuela","Vietnam","Yemen","Zambia","Zimbabwe"
+]
+
+# --- تسجيل الدخول ---
+if not st.session_state['authenticated']:
+    with st.form("login_form"):
+        st.subheader("Protected Access")
+        pwd_input = st.text_input("Enter Password", type="password")
+        if st.form_submit_button("Login"):
+            if pwd_input == "Bilkish":
+                st.session_state['authenticated'] = True
+                st.rerun()
+            else:
+                st.error("Incorrect Password.")
+    st.stop()
+
+# --- دالة تحويل الوقت ---
+def format_time(seconds):
+    return str(timedelta(seconds=int(seconds)))
+
+# --- وظائف الاستخراج والترجمة ---
+def translate_to_english(text):
+    try:
+        if text and text != 'Not Found':
+            return GoogleTranslator(source='auto', target='en').translate(text)
+        return text
+    except:
+        return text
+
+def get_driver():
     options = uc.ChromeOptions()
     options.add_argument('--headless')
     options.add_argument('--no-sandbox')
     options.add_argument('--disable-dev-shm-usage')
     return uc.Chrome(options=options, headless=True, use_subprocess=False)
 
-# ---------- Deep Search Function ----------
-def deep_search_card(card_number):
-    driver = get_deep_driver()
+def color_status(val):
+    color = '#90EE90' if val == 'Found' else '#FFCCCB'
+    return f'background-color: {color}'
+
+def extract_data(passport, nationality, dob_str):
+    driver = get_driver()
     try:
-        driver.get("https://inquiry.mohre.gov.ae/")
-        wait = WebDriverWait(driver, 30)
+        driver.get("https://mobile.mohre.gov.ae/Mob_Mol/MolWeb/MyContract.aspx?Service_Code=1005&lang=en")
+        time.sleep(4)
 
-        service = wait.until(EC.presence_of_element_located((By.TAG_NAME, 'select')))
-        Select(service).select_by_visible_text("Electronic Work Permit Information")
-
-        input_box = wait.until(EC.presence_of_element_located((By.ID, 'InputData')))
-        input_box.clear()
-        input_box.send_keys(str(card_number))
-
-        driver.execute_script("""
-        var spans = document.querySelectorAll('span');
-        var code = '';
-        spans.forEach(s => { if (/^\\d{4}$/.test(s.innerText)) code = s.innerText; });
-        if(code){ document.querySelector('input[type="text"]').value = code; }
-        """)
-
+        driver.find_element(By.ID, "txtPassportNumber").send_keys(passport)
+        driver.find_element(By.ID, "CtrlNationality_txtDescription").click()
         time.sleep(1)
-        wait.until(EC.element_to_be_clickable((By.TAG_NAME, 'button'))).click()
-        time.sleep(3)
 
-        def safe_get(label):
+        search_box = driver.find_element(By.CSS_SELECTOR, "#ajaxSearchBoxModal .form-control")
+        search_box.send_keys(nationality)
+        time.sleep(1)
+
+        items = driver.find_elements(By.CSS_SELECTOR, "#ajaxSearchBoxModal .items li a")
+        if items:
+            items[0].click()
+
+        dob_input = driver.find_element(By.ID, "txtBirthDate")
+        driver.execute_script("arguments[0].removeAttribute('readonly');", dob_input)
+        dob_input.clear()
+        dob_input.send_keys(dob_str)
+        driver.execute_script("arguments[0].dispatchEvent(new Event('change'));", dob_input)
+
+        driver.find_element(By.ID, "btnSubmit").click()
+        time.sleep(8)
+
+        def get_value(label):
             try:
-                xpath = f"//label[contains(text(), '{label}')]/following-sibling::div"
-                return driver.find_element(By.XPATH, xpath).text.strip()
+                xpath = f"//span[contains(text(), '{label}')]/following::span[1]"
+                val = driver.find_element(By.XPATH, xpath).text.strip()
+                return val if val else 'Not Found'
             except:
                 return 'Not Found'
 
+        card_num = get_value("Card Number")
+        if card_num == 'Not Found':
+            return None
+
         return {
-            "Name": safe_get('Name'),
-            "Est Name": safe_get('Establishment Name'),
-            "Company Code": safe_get('Company Code'),
-            "Designation": safe_get('Designation')
+            "Passport Number": passport,
+            "Nationality": nationality,
+            "Date of Birth": dob_str,
+            "Job Description": translate_to_english(get_value("Job Description")),
+            "Card Number": card_num,
+            "Card Issue": get_value("Card Issue"),
+            "Card Expiry": get_value("Card Expiry"),
+            "Basic Salary": get_value("Basic Salary"),
+            "Total Salary": get_value("Total Salary"),
+            "Status": "Found"
         }
     except:
         return None
     finally:
         driver.quit()
 
-# ---------- Deep Search UI Trigger ----------
-st.markdown("---")
-if (st.session_state.batch_results or st.session_state.get('authenticated')) and not st.session_state.deep_done:
-    if st.button("🔍 Run Deep Search (Single + Batch)"):
-        st.session_state.deep_done = True
+# --- واجهة المستخدم ---
+tab1, tab2 = st.tabs(["Single Search", "Upload Excel File"])
 
-# ---------- Deep Search Execution ----------
-if st.session_state.deep_done:
-    target_rows = []
+with tab1:
+    st.subheader("Single Person Search")
+    c1, c2, c3 = st.columns(3)
+    p_in = c1.text_input("Passport Number")
+    n_in = c2.selectbox("Nationality", countries_list)
+    d_in = c3.date_input("Date of Birth", value=None, min_value=datetime(1900,1,1))
 
-    # Detect Single Result
-    if 'res' in locals() and res and res.get('Status') == 'Found':
-        target_rows = [res]
+    if st.button("Search Now"):
+        if p_in and n_in != "Select Nationality" and d_in:
+            with st.spinner("Searching..."):
+                res = extract_data(p_in, n_in, d_in.strftime("%d/%m/%Y"))
+                if res:
+                    st.table(pd.DataFrame([res]))
+                else:
+                    st.error("No data found.")
 
-    # Detect Batch Results
-    if st.session_state.batch_results:
-        target_rows = st.session_state.batch_results
+with tab2:
+    st.subheader("Batch Processing Control")
+    uploaded_file = st.file_uploader("Upload Excel", type=["xlsx"])
 
-    if target_rows:
-        progress = st.progress(0)
-        live = st.empty()
+    if uploaded_file:
+        df = pd.read_excel(uploaded_file)
+        st.write(f"Total records in file: {len(df)}")
+        st.dataframe(df, height=150)
 
-        for i, row in enumerate(target_rows):
-            if row.get('Status') != 'Found' or not row.get('Card Number'):
-                continue
+        col1, col2, col3 = st.columns(3)
+        if col1.button("▶️ Start / Resume"):
+            st.session_state.run_state = 'running'
+            if st.session_state.start_time_ref is None:
+                st.session_state.start_time_ref = time.time()
 
-            deep = deep_search_card(row.get('Card Number'))
-            if deep:
-                row['Name'] = deep['Name']
-                row['Est Name'] = deep['Est Name']
-                row['Company Code'] = deep['Company Code']
-                if deep['Designation'] != 'Not Found':
-                    row['Job Description'] = deep['Designation']
+        if col2.button("⏸️ Pause"):
+            st.session_state.run_state = 'paused'
 
-            live.dataframe(pd.DataFrame(target_rows), use_container_width=True)
-            progress.progress((i + 1) / len(target_rows))
+        if col3.button("⏹️ Stop & Reset"):
+            st.session_state.run_state = 'stopped'
+            st.session_state.batch_results = []
+            st.session_state.start_time_ref = None
+            st.session_state.deep_done = False
+            st.rerun()
 
-        st.success("Deep Search Completed Successfully")
+        if st.session_state.run_state in ['running', 'paused']:
+            progress_bar = st.progress(0)
+            live_table_area = st.empty()
+
+            for i, row in df.iterrows():
+                if i < len(st.session_state.batch_results):
+                    continue
+
+                p_num = str(row.get('Passport Number', '')).strip()
+                nat = str(row.get('Nationality', 'Egypt')).strip()
+                try:
+                    dob = pd.to_datetime(row.get('Date of Birth')).strftime('%d/%m/%Y')
+                except:
+                    dob = ''
+
+                res = extract_data(p_num, nat, dob)
+                if res:
+                    st.session_state.batch_results.append(res)
+                else:
+                    st.session_state.batch_results.append({
+                        "Passport Number": p_num,
+                        "Nationality": nat,
+                        "Date of Birth": dob,
+                        "Job Description": "N/A",
+                        "Card Number": "N/A",
+                        "Card Issue": "N/A",
+                        "Card Expiry": "N/A",
+                        "Basic Salary": "N/A",
+                        "Total Salary": "N/A",
+                        "Status": "Not Found"
+                    })
+
+                progress_bar.progress((i + 1) / len(df))
+                df_live = pd.DataFrame(st.session_state.batch_results)
+                live_table_area.dataframe(df_live.style.map(color_status, subset=['Status']), use_container_width=True)
+
+            if len(st.session_state.batch_results) == len(df):
+                st.success("Batch Completed")
+                st.download_button(
+                    "Download Full Report (CSV)",
+                    pd.DataFrame(st.session_state.batch_results).to_csv(index=False).encode(),
+                    "full_results.csv"
+                )
