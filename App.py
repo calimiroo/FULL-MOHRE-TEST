@@ -130,48 +130,54 @@ def run_deep_search(driver, card_number):
             "Designation": "Not Found"
         }
 
-# ======================== UI ==================================
-st.title("MOHRE Search with Deep Search")
+# ======================== UI (RESTORED ORIGINAL DESIGN) ======================
+# NOTE:
+# - UI structure reverted to original simple layout
+# - No radio buttons, no layout changes
+# - Search flow preserved exactly as before
 
-mode = st.radio("Search Mode", ["Single Search", "Excel Search"])
+st.title("MOHRE Search")
 
-# ===================== SINGLE SEARCH ===========================
-if mode == "Single Search":
-    passport = st.text_input("Passport Number")
-    nationality = st.text_input("Nationality")
+# -------- Original Inputs Layout --------
+passport = st.text_input("Passport Number")
+nationality = st.text_input("Nationality")
 
-    if st.button("Search"):
-        driver = get_driver()
-        res = first_search(driver, passport, nationality)
-        df = pd.DataFrame([res])
-        st.session_state.results_df = df
-        st.session_state.results_ready = True
-        st.dataframe(df)
+col1, col2 = st.columns(2)
 
-# ===================== EXCEL SEARCH ============================
-if mode == "Excel Search":
-    file = st.file_uploader("Upload Excel", type=["xlsx"])
+with col1:
+    search_btn = st.button("Search")
 
-    if file and st.button("Run Batch Search"):
-        driver = get_driver()
-        data = pd.read_excel(file)
-        results = []
+with col2:
+    deep_btn = st.button("🔍 Deep Search") if st.session_state.results_ready else False
 
-        for _, r in data.iterrows():
-            res = first_search(driver, r[0], r[1])
-            results.append(res)
+# -------- Excel Upload (Original Position) --------
+file = st.file_uploader("Upload Excel", type=["xlsx"])
+batch_btn = st.button("Run Batch Search") if file else False
 
-        df = pd.DataFrame(results)
-        st.session_state.results_df = df
-        st.session_state.results_ready = True
-        st.dataframe(df)
+# ===================== SEARCH EXECUTION ========================
+if search_btn:
+    driver = get_driver()
+    res = first_search(driver, passport, nationality)
+    df = pd.DataFrame([res])
+    st.session_state.results_df = df
+    st.session_state.results_ready = True
+    st.dataframe(df)
 
-# ===================== DEEP SEARCH BUTTON ======================
-if st.session_state.results_ready:
-    if st.button("🔍 Deep Search"):
-        st.session_state.deep_running = True
+if batch_btn:
+    driver = get_driver()
+    data = pd.read_excel(file)
+    results = []
+    for _, r in data.iterrows():
+        results.append(first_search(driver, r[0], r[1]))
+    df = pd.DataFrame(results)
+    st.session_state.results_df = df
+    st.session_state.results_ready = True
+    st.dataframe(df)
 
-# ===================== DEEP SEARCH LOOP ========================
+# ===================== DEEP SEARCH =============================
+if deep_btn:
+    st.session_state.deep_running = True
+
 if st.session_state.deep_running:
     driver = get_driver()
     df = st.session_state.results_df
