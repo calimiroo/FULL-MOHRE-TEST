@@ -10,8 +10,8 @@ from datetime import datetime, timedelta
 from deep_translator import GoogleTranslator 
 
 # --- إعداد الصفحة --- 
-st.set_page_config(page_title="MOHRE Portal", layout="wide") 
-st.title("HAMADA TRACING SITE TEST") 
+st.set_page_config(page_title="MOHRE Portal - Advanced", layout="wide") 
+st.title("HAMADA TRACING SITE - STABLE VERSION") 
 
 # --- إدارة جلسة العمل (Session State) ---
 if 'authenticated' not in st.session_state:
@@ -24,12 +24,10 @@ if 'start_time_ref' not in st.session_state:
     st.session_state['start_time_ref'] = None
 if 'deep_run_state' not in st.session_state:
     st.session_state['deep_run_state'] = 'stopped'
-if 'deep_progress' not in st.session_state:
-    st.session_state['deep_progress'] = 0
 if 'single_res' not in st.session_state:
     st.session_state['single_res'] = None
 
-# قائمة الجنسيات (محفوظة كما هي)
+# قائمة الجنسيات
 countries_list = ["Select Nationality", "Afghanistan", "Albania", "Algeria", "Andorra", "Angola", "Antigua and Barbuda", "Argentina", "Armenia", "Australia", "Austria", "Azerbaijan", "Bahamas", "Bahrain", "Bangladesh", "Barbados", "Belarus", "Belgium", "Belize", "Benin", "Bhutan", "Bolivia", "Bosnia and Herzegovina", "Botswana", "Brazil", "Brunei", "Bulgaria", "Burkina Faso", "Burundi", "Cabo Verde", "Cambodia", "Cameroon", "Canada", "Central African Republic", "Chad", "Chile", "China", "Colombia", "Comoros", "Congo (Congo-Brazzaville)", "Costa Rica", "Côte d'Ivoire", "Croatia", "Cuba", "Cyprus", "Czechia (Czech Republic)", "Democratic Republic of the Congo", "Denmark", "Djibouti", "Dominica", "Dominican Republic", "Ecuador", "Egypt", "El Salvador", "Equatorial Guinea", "Eritrea", "Estonia", "Eswatini", "Ethiopia", "Fiji", "Finland", "France", "Gabon", "Gambia", "Georgia", "Germany", "Ghana", "Greece", "Grenada", "Guatemala", "Guinea", "Guinea-Bissau", "Guyana", "Haiti", "Holy See", "Honduras", "Hungary", "Iceland", "India", "Indonesia", "Iran", "Iraq", "Ireland", "Israel", "Italy", "Jamaica", "Japan", "Jordan", "Kazakhstan", "Kenya", "Kiribati", "Kuwait", "Kyrgyzstan", "Laos", "Latvia", "Lebanon", "Lesotho", "Liberia", "Libya", "Liechtenstein", "Lithuania", "Luxembourg", "Madagascar", "Malawi", "Malaysia", "Maldives", "Mali", "Malta", "Marshall Islands", "Mauritania", "Mauritius", "Mexico", "Micronesia", "Moldova", "Monaco", "Mongolia", "Montenegro", "Morocco", "Mozambique", "Myanmar", "Namibia", "Nauru", "Nepal", "Netherlands", "New Zealand", "Nicaragua", "Niger", "Nigeria", "North Korea", "North Macedonia", "Norway", "Oman", "Pakistan", "Palau", "Palestine State", "Panama", "Papua New Guinea", "Paraguay", "Peru", "Philippines", "Poland", "Portugal", "Qatar", "Romania", "Russia", "Rwanda", "Saint Kitts and Nevis", "Saint Lucia", "Saint Vincent and the Grenadines", "Samoa", "San Marino", "Sao Tome and Principe", "Saudi Arabia", "Senegal", "Serbia", "Seychelles", "Sierra Leone", "Singapore", "Slovakia", "Slovenia", "Solomon Islands", "Somalia", "South Africa", "South Korea", "South Sudan", "Spain", "Sri Lanka", "Sudan", "Suriname", "Sweden", "Switzerland", "Syria", "Tajikistan", "Tanzania", "Thailand", "Timor-Leste", "Togo", "Tonga", "Trinidad and Tobago", "Tunisia", "Turkey", "Turkmenistan", "Tuvalu", "Uganda", "Ukraine", "United Arab Emirates", "United Kingdom", "United States of America", "Uruguay", "Uzbekistan", "Vanuatu", "Venezuela", "Vietnam", "Yemen", "Zambia", "Zimbabwe"] 
 
 # --- تسجيل الدخول ---
@@ -52,7 +50,7 @@ def format_time(seconds):
 # --- وظائف الاستخراج والترجمة ---
 def translate_to_english(text):
     try:
-        if text and text != 'Not Found':
+        if text and text != 'Not Found' and text != 'N/A':
             return GoogleTranslator(source='auto', target='en').translate(text)
         return text
     except:
@@ -66,35 +64,39 @@ def get_driver():
     options.add_argument('--disable-gpu')
     options.add_argument('--window-size=1920,1080')
     options.add_argument('--disable-blink-features=AutomationControlled')
-    options.add_argument("user-agent=Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/119.0.0.0 Safari/537.36")
-    return uc.Chrome(options=options, headless=True, use_subprocess=False)
+    options.add_argument("user-agent=Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36")
+    try:
+        driver = uc.Chrome(options=options, headless=True, use_subprocess=False)
+        return driver
+    except Exception as e:
+        st.error(f"Driver Error: {e}")
+        return None
 
 def color_status(val):
     color = '#90EE90' if val == 'Found' else '#FFCCCB'
     return f'background-color: {color}'
 
-# --- استخراج بيانات من الموقع الأول ---
+# --- استخراج بيانات من الموقع الأول (Contract) ---
 def extract_data(passport, nationality, dob_str):
     driver = get_driver()
+    if not driver: return None
     try:
         driver.get("https://mobile.mohre.gov.ae/Mob_Mol/MolWeb/MyContract.aspx?Service_Code=1005&lang=en")
-        wait = WebDriverWait(driver, 15)
+        wait = WebDriverWait(driver, 20)
         
         passport_input = wait.until(EC.presence_of_element_located((By.ID, "txtPassportNumber")))
+        passport_input.clear()
         passport_input.send_keys(passport)
         
         driver.find_element(By.ID, "CtrlNationality_txtDescription").click()
-        time.sleep(1)
-        try:
-            search_box = wait.until(EC.presence_of_element_located((By.CSS_SELECTOR, "#ajaxSearchBoxModal .form-control")))
-            search_box.send_keys(nationality)
-            time.sleep(1)
-            items = driver.find_elements(By.CSS_SELECTOR, "#ajaxSearchBoxModal .items li a")
-            if items:
-                items[0].click()
-        except:
-            pass
-
+        time.sleep(1.5)
+        search_box = wait.until(EC.presence_of_element_located((By.CSS_SELECTOR, "#ajaxSearchBoxModal .form-control")))
+        search_box.send_keys(nationality)
+        time.sleep(1.5)
+        items = driver.find_elements(By.CSS_SELECTOR, "#ajaxSearchBoxModal .items li a")
+        if items:
+            items[0].click()
+        
         dob_input = driver.find_element(By.ID, "txtBirthDate")
         driver.execute_script("arguments[0].removeAttribute('readonly');", dob_input)
         dob_input.clear()
@@ -102,7 +104,7 @@ def extract_data(passport, nationality, dob_str):
         driver.execute_script("arguments[0].dispatchEvent(new Event('change'));", dob_input)
         
         driver.find_element(By.ID, "btnSubmit").click()
-        time.sleep(8)
+        time.sleep(10)
 
         def get_value(label):
             try:
@@ -136,12 +138,13 @@ def extract_data(passport, nationality, dob_str):
     finally:
         driver.quit()
 
-# --- وظيفة البحث العميق في الموقع الثاني ---
+# --- وظيفة البحث العميق (Inquiry) ---
 def deep_extract_by_card(card_number):
     driver = get_driver()
+    if not driver: return None
     try:
         driver.get("https://inquiry.mohre.gov.ae/")
-        wait = WebDriverWait(driver, 20)
+        wait = WebDriverWait(driver, 25)
         
         # 1) اختيار الخدمة
         dropdown_btn = wait.until(EC.element_to_be_clickable((By.ID, "dropdownButton")))
@@ -153,32 +156,31 @@ def deep_extract_by_card(card_number):
         time.sleep(2)
         
         # 2) إدخال رقم البطاقة
-        wait.until(EC.presence_of_element_located((By.ID, "txtWorkPermitNo")))
-        driver.find_element(By.ID, "txtWorkPermitNo").send_keys(card_number)
+        card_input = wait.until(EC.presence_of_element_located((By.ID, "txtWorkPermitNo")))
+        card_input.clear()
+        card_input.send_keys(card_number)
         
-        # 3) ملء الكابتشا آلياً
+        # 3) تجاوز الكابتشا
         try:
-            js_fill_captcha = r"""
-            try{
-                const tryFill=()=>{
-                    const code=Array.from(document.querySelectorAll('div,span,b,strong')).map(el=>el.innerText.trim()).find(txt=>/^\d{4}$/.test(txt));
-                    const input=Array.from(document.querySelectorAll('input')).find(i=>i.placeholder.includes("التحقق")||i.placeholder.toLowerCase().includes("captcha"));
-                    if(code&&input){input.value=code;input.dispatchEvent(new Event('input',{bubbles:true}));}
-                };
-                tryFill();
-            }catch(e){}            
-            """
-            driver.execute_script(js_fill_captcha)
+            captcha_elements = driver.find_elements(By.CSS_SELECTOR, "div,span,b,strong")
+            captcha_code = ""
+            for el in captcha_elements:
+                txt = el.text.strip()
+                if len(txt) == 4 and txt.isdigit():
+                    captcha_code = txt
+                    break
+            
+            if captcha_code:
+                captcha_input = driver.find_element(By.CSS_SELECTOR, "input[placeholder*='التحقق'], input[placeholder*='captcha'], input[placeholder*='Captcha']")
+                captcha_input.send_keys(captcha_code)
+                driver.execute_script("arguments[0].dispatchEvent(new Event('input', {bubbles:true}));", captcha_input)
         except:
             pass
         
         time.sleep(1)
-        
-        # 4) الضغط على بحث
         driver.find_element(By.ID, "btnSearch").click()
-        time.sleep(5)
+        time.sleep(8) # زيادة وقت الانتظار للنتائج
         
-        # 5) استخراج البيانات
         res = {
             "Card Number": card_number,
             "Name": "Not Found",
@@ -187,6 +189,7 @@ def deep_extract_by_card(card_number):
             "Designation": "Not Found"
         }
         
+        # محاولة جلب البيانات بعدة طرق
         labels_map = {
             "Name": ["Name", "Worker Name", "lblNameEn"],
             "Est Name": ["Establishment Name", "Company Name", "lblEstablishmentNameEn"],
@@ -202,7 +205,7 @@ def deep_extract_by_card(card_number):
                     else:
                         xpath = f"//*[contains(text(), '{label}')]/following::span[1]"
                         val = driver.find_element(By.XPATH, xpath).text.strip()
-                    if val and val != "N/A":
+                    if val and val != "N/A" and val != "":
                         res[key] = val
                         break
                 except:
@@ -239,7 +242,7 @@ with tab1:
         if card_no and card_no != "N/A":
             if st.button(f"🔍 Deep Search for Card: {card_no}"):
                 with st.spinner(f"Deep Searching Card: {card_no}..."):
-                    deep_res = deep_search_extract = deep_extract_by_card(card_no)
+                    deep_res = deep_extract_by_card(card_no)
                     if deep_res:
                         st.session_state['single_res'].update({
                             "Name": deep_res.get("Name"),
@@ -273,18 +276,14 @@ with tab2:
             st.session_state.batch_results = []
             st.session_state.start_time_ref = None
             st.session_state.deep_run_state = 'stopped'
-            st.session_state.deep_progress = 0
             st.rerun()
 
         progress_bar = st.progress(0)
         status_text = st.empty()
         stats_area = st.empty()
         live_table_area = st.empty()
-        deep_status_area = st.empty()
-        deep_progress_bar = st.empty()
 
         actual_success = 0
-
         for i, row in df.iterrows():
             while st.session_state.run_state == 'paused':
                 status_text.warning("Paused... click Resume to continue.")
@@ -295,12 +294,6 @@ with tab2:
             if i < len(st.session_state.batch_results):
                 if st.session_state.batch_results[i].get("Status") == "Found":
                     actual_success += 1
-                current_df = pd.DataFrame(st.session_state.batch_results)
-                styled_df = current_df.style.map(color_status, subset=['Status'])
-                live_table_area.dataframe(styled_df, use_container_width=True)
-                progress_bar.progress((i + 1) / len(df))
-                elapsed_seconds = time.time() - st.session_state.start_time_ref if st.session_state.start_time_ref else 0
-                stats_area.markdown(f"✅ **Actual Success (Found):** {actual_success} | ⏱️ **Total Time:** `{format_time(elapsed_seconds)}`")
                 continue
 
             p_num = str(row.get('Passport Number', '')).strip()
@@ -327,50 +320,37 @@ with tab2:
             elapsed_seconds = time.time() - st.session_state.start_time_ref if st.session_state.start_time_ref else 0
             progress_bar.progress((i + 1) / len(df))
             stats_area.markdown(f"✅ **Actual Success (Found):** {actual_success} | ⏱️ **Total Time:** `{format_time(elapsed_seconds)}`")
-
-            current_df = pd.DataFrame(st.session_state.batch_results)
-            styled_df = current_df.style.map(color_status, subset=['Status'])
-            live_table_area.dataframe(styled_df, use_container_width=True)
+            live_table_area.dataframe(pd.DataFrame(st.session_state.batch_results).style.map(color_status, subset=['Status']), use_container_width=True)
 
         if st.session_state.run_state == 'running' and len(st.session_state.batch_results) == len(df):
             st.success(f"Batch Completed! Total Time: {format_time(time.time() - st.session_state.start_time_ref)}")
-            final_df = pd.DataFrame(st.session_state.batch_results)
-            st.download_button("Download Full Report (CSV)", final_df.to_csv(index=False).encode('utf-8'), "full_results.csv")
+            st.session_state.run_state = 'completed'
 
-            if st.button("Deep Search (Search cards on inquiry.mohre.gov.ae)"):
+        if len(st.session_state.batch_results) > 0:
+            if st.button("🔍 Deep Search (All Found Cards)"):
                 st.session_state.deep_run_state = 'running'
-                st.session_state.deep_progress = 0
 
             if st.session_state.deep_run_state == 'running':
-                deep_total = sum(1 for r in st.session_state.batch_results if r.get('Status') == 'Found' and r.get('Card Number') not in [None, 'N/A', 'Not Found', ''])
-                if deep_total == 0:
-                    st.info("No 'Found' records with valid Card Number to Deep Search.")
-                    st.session_state.deep_run_state = 'stopped'
-                else:
-                    deep_idx = 0
-                    deep_success = 0
-                    deep_progress_bar = st.progress(0)
-                    for idx, rec in enumerate(st.session_state.batch_results):
-                        if st.session_state.deep_run_state != 'running': break
-                        if rec.get('Status') != 'Found': continue
-                        card = rec.get('Card Number')
-                        if not card or card in ['N/A', 'Not Found']: continue
+                deep_status = st.empty()
+                deep_progress = st.progress(0)
+                found_records = [idx for idx, r in enumerate(st.session_state.batch_results) if r.get('Status') == 'Found' and r.get('Name') == 'N/A']
+                
+                for idx, main_idx in enumerate(found_records):
+                    card = st.session_state.batch_results[main_idx].get('Card Number')
+                    deep_status.info(f"Deep Searching Card: {card} ({idx+1}/{len(found_records)})")
+                    deep_res = deep_extract_by_card(card)
+                    if deep_res:
+                        st.session_state.batch_results[main_idx].update({
+                            "Name": deep_res.get("Name"),
+                            "Est Name": deep_res.get("Est Name"),
+                            "Company Code": deep_res.get("Company Code"),
+                            "Job Description": deep_res.get("Designation") if deep_res.get("Designation") != "Not Found" else st.session_state.batch_results[main_idx]["Job Description"]
+                        })
+                    deep_progress.progress((idx + 1) / len(found_records))
+                    live_table_area.dataframe(pd.DataFrame(st.session_state.batch_results).style.map(color_status, subset=['Status']), use_container_width=True)
+                
+                st.success("Deep Search Completed!")
+                st.session_state.deep_run_state = 'completed'
 
-                        deep_status_area.info(f"Deep Searching {deep_idx+1}/{deep_total}: {card}")
-                        deep_res = deep_extract_by_card(card)
-                        if deep_res:
-                            deep_success += 1
-                            st.session_state.batch_results[idx]['Job Description'] = deep_res.get('Designation', 'Not Found')
-                            st.session_state.batch_results[idx]['Name'] = deep_res.get('Name', '')
-                            st.session_state.batch_results[idx]['Est Name'] = deep_res.get('Est Name', '')
-                            st.session_state.batch_results[idx]['Company Code'] = deep_res.get('Company Code', '')
-                        
-                        deep_idx += 1
-                        deep_progress_bar.progress(min(1.0, deep_idx / deep_total))
-                        current_df = pd.DataFrame(st.session_state.batch_results)
-                        live_table_area.dataframe(current_df.style.map(color_status, subset=['Status']), use_container_width=True)
-
-                    st.success(f"Deep Search Completed: {deep_success}/{deep_total} succeeded")
-                    final_df = pd.DataFrame(st.session_state.batch_results)
-                    st.download_button("Download Final Full Report (CSV)", final_df.to_csv(index=False).encode('utf-8'), "full_results_with_deep.csv")
-                    st.session_state.deep_run_state = 'stopped'
+            final_df = pd.DataFrame(st.session_state.batch_results)
+            st.download_button("📥 Download Full Report (CSV)", final_df.to_csv(index=False).encode('utf-8'), "mohre_full_report.csv")
