@@ -19,6 +19,8 @@ if 'batch_results' not in st.session_state:
     st.session_state['batch_results'] = []
 if 'start_time_ref' not in st.session_state:
     st.session_state['start_time_ref'] = None
+if 'single_res' not in st.session_state:
+    st.session_state['single_res'] = None
 
 # قائمة الجنسيات
 countries_list = ["Select Nationality", "Afghanistan", "Albania", "Algeria", "Andorra", "Angola", "Antigua and Barbuda", "Argentina", "Armenia", "Australia", "Austria", "Azerbaijan", "Bahamas", "Bahrain", "Bangladesh", "Barbados", "Belarus", "Belgium", "Belize", "Benin", "Bhutan", "Bolivia", "Bosnia and Herzegovina", "Botswana", "Brazil", "Brunei", "Bulgaria", "Burkina Faso", "Burundi", "Cabo Verde", "Cambodia", "Cameroon", "Canada", "Central African Republic", "Chad", "Chile", "China", "Colombia", "Comoros", "Congo (Congo-Brazzaville)", "Costa Rica", "Côte d'Ivoire", "Croatia", "Cuba", "Cyprus", "Czechia (Czech Republic)", "Democratic Republic of the Congo", "Denmark", "Djibouti", "Dominica", "Dominican Republic", "Ecuador", "Egypt", "El Salvador", "Equatorial Guinea", "Eritrea", "Estonia", "Eswatini", "Ethiopia", "Fiji", "Finland", "France", "Gabon", "Gambia", "Georgia", "Germany", "Ghana", "Greece", "Grenada", "Guatemala", "Guinea", "Guinea-Bissau", "Guyana", "Haiti", "Holy See", "Honduras", "Hungary", "Iceland", "India", "Indonesia", "Iran", "Iraq", "Ireland", "Israel", "Italy", "Jamaica", "Japan", "Jordan", "Kazakhstan", "Kenya", "Kiribati", "Kuwait", "Kyrgyzstan", "Laos", "Latvia", "Lebanon", "Lesotho", "Liberia", "Libya", "Liechtenstein", "Lithuania", "Luxembourg", "Madagascar", "Malawi", "Malaysia", "Maldives", "Mali", "Malta", "Marshall Islands", "Mauritania", "Mauritius", "Mexico", "Micronesia", "Moldova", "Monaco", "Mongolia", "Montenegro", "Morocco", "Mozambique", "Myanmar", "Namibia", "Nauru", "Nepal", "Netherlands", "New Zealand", "Nicaragua", "Niger", "Nigeria", "North Korea", "North Macedonia", "Norway", "Oman", "Pakistan", "Palau", "Palestine State", "Panama", "Papua New Guinea", "Paraguay", "Peru", "Philippines", "Poland", "Portugal", "Qatar", "Romania", "Russia", "Rwanda", "Saint Kitts and Nevis", "Saint Lucia", "Saint Vincent and the Grenadines", "Samoa", "San Marino", "Sao Tome and Principe", "Saudi Arabia", "Senegal", "Serbia", "Seychelles", "Sierra Leone", "Singapore", "Slovakia", "Slovenia", "Solomon Islands", "Somalia", "South Africa", "South Korea", "South Sudan", "Spain", "Sri Lanka", "Sudan", "Suriname", "Sweden", "Switzerland", "Syria", "Tajikistan", "Tanzania", "Thailand", "Timor-Leste", "Togo", "Tonga", "Trinidad and Tobago", "Tunisia", "Turkey", "Turkmenistan", "Tuvalu", "Uganda", "Ukraine", "United Arab Emirates", "United Kingdom", "United States of America", "Uruguay", "Uzbekistan", "Vanuatu", "Venezuela", "Vietnam", "Yemen", "Zambia", "Zimbabwe"]
@@ -100,8 +102,71 @@ def extract_data(passport, nationality, dob_str):
             "Basic Salary": get_value("Basic Salary"), "Total Salary": get_value("Total Salary"),
             "Status": "Found"
         }
-    except: return None
+    except Exception as e:
+        st.error(f"Initial search error: {str(e)}")
+        return None
     finally: driver.quit()
+
+# --- New Function: Deep Extract Data ---
+def deep_extract_data(card_num):
+    driver = get_driver()
+    try:
+        driver.get("https://inquiry.mohre.gov.ae/")
+        time.sleep(5)
+
+        # Force English if needed
+        lang_button = driver.find_element(By.ID, "btnlanguage")
+        if "English" in lang_button.text or "استعلام" in driver.title:
+            lang_button.click()
+            time.sleep(3)
+            driver.refresh()
+            time.sleep(5)
+
+        # Select "Electronic Work Permit Information" (value="EWPI")
+        driver.find_element(By.ID, "dropdownButton").click()
+        time.sleep(2)
+        search_input = driver.find_element(By.ID, "searchInput")
+        search_input.send_keys("Electronic Work Permit Information")
+        time.sleep(2)
+        options = driver.find_elements(By.CSS_SELECTOR, "#optionsList li")
+        for opt in options:
+            if "Electronic Work Permit Information" in opt.text:
+                opt.click()
+                break
+        time.sleep(5)  # Wait for form to load
+
+        # Find input by label proximity (robust)
+        permit_input_xpath = "//label[contains(translate(text(), 'ABCDEFGHIJKLMNOPQRSTUVWXYZ', 'abcdefghijklmnopqrstuvwxyz'), 'electronic work permit number') or contains(translate(text(), 'ABCDEFGHIJKLMNOPQRSTUVWXYZ', 'abcdefghijklmnopqrstuvwxyz'), 'work permit number') or contains(translate(text(), 'ABCDEFGHIJKLMNOPQRSTUVWXYZ', 'abcdefghijklmnopqrstuvwxyz'), 'permit number')]/following-sibling::input[1] | //span[contains(translate(text(), 'ABCDEFGHIJKLMNOPQRSTUVWXYZ', 'abcdefghijklmnopqrstuvwxyz'), 'electronic work permit number') or contains(translate(text(), 'ABCDEFGHIJKLMNOPQRSTUVWXYZ', 'abcdefghijklmnopqrstuvwxyz'), 'work permit number') or contains(translate(text(), 'ABCDEFGHIJKLMNOPQRSTUVWXYZ', 'abcdefghijklmnopqrstuvwxyz'), 'permit number')]/following::input[1]"
+        permit_input = driver.find_element(By.XPATH, permit_input_xpath)
+        permit_input.send_keys(card_num)
+
+        # Bypass captcha with provided JS
+        driver.execute_script("""(function(){try{const tryFill=()=>{const code=Array.from(document.querySelectorAll('div,span,b,strong')).map(el=>el.innerText.trim()).find(txt=>/^\d{4}$/.test(txt));const input=Array.from(document.querySelectorAll('input')).find(i=>i.placeholder.includes("التحقق")||i.placeholder.toLowerCase().includes("captcha"));if(code&&input){input.value=code;input.dispatchEvent(new Event('input',{bubbles:true}));}else{setTimeout(tryFill,500);}};tryFill();}catch(e){console.error('Error:',e);}})();""")
+        time.sleep(3)
+
+        # Submit by text (robust)
+        submit_xpath = "//button[contains(translate(text(), 'ABCDEFGHIJKLMNOPQRSTUVWXYZ', 'abcdefghijklmnopqrstuvwxyz'), 'submit') or contains(translate(text(), 'ABCDEFGHIJKLMNOPQRSTUVWXYZ', 'abcdefghijklmnopqrstuvwxyz'), 'inquiry') or contains(translate(text(), 'ABCDEFGHIJKLMNOPQRSTUVWXYZ', 'abcdefghijklmnopqrstuvwxyz'), 'search') or @type='submit']"
+        driver.find_element(By.XPATH, submit_xpath).click()
+        time.sleep(10)
+
+        def get_value(label):
+            try:
+                xpath = f"//span[contains(translate(text(), 'ABCDEFGHIJKLMNOPQRSTUVWXYZ', 'abcdefghijklmnopqrstuvwxyz'), '{label.lower()}')]/following::span[1] | //label[contains(translate(text(), 'ABCDEFGHIJKLMNOPQRSTUVWXYZ', 'abcdefghijklmnopqrstuvwxyz'), '{label.lower()}')]/following-sibling::div"
+                val = driver.find_element(By.XPATH, xpath).text.strip()
+                return translate_to_english(val) if val else 'N/A'
+            except: return 'N/A'
+
+        return {
+            "Name": get_value("Name"),
+            "Est Name": get_value("Est Name"),
+            "Company Code": get_value("Company Code"),
+            "Designation": get_value("Designation")
+        }
+    except Exception as e:
+        st.error(f"Deep search error for card {card_num}: {str(e)}")
+        return None
+    finally:
+        driver.quit()
 
 # --- واجهة المستخدم ---
 tab1, tab2 = st.tabs(["Single Search", "Upload Excel File"])
@@ -117,8 +182,29 @@ with tab1:
         if p_in and n_in != "Select Nationality" and d_in:
             with st.spinner("Searching..."):
                 res = extract_data(p_in, n_in, d_in.strftime("%d/%m/%Y"))
-                if res: st.table(pd.DataFrame([res]))
-                else: st.error("No data found.")
+                if res:
+                    st.session_state.single_res = res
+                    st.rerun()
+                else:
+                    st.error("No data found.")
+                    st.session_state.single_res = None
+
+    if 'single_res' in st.session_state and st.session_state.single_res:
+        single_df = pd.DataFrame([st.session_state.single_res])
+        styled_single_df = single_df.style.map(color_status, subset=['Status']) if 'Status' in single_df.columns else single_df
+        st.dataframe(styled_single_df)
+
+        if st.session_state.single_res.get('Status') == 'Found' and 'Name' not in st.session_state.single_res:
+            if st.button("Deep Search"):
+                with st.spinner("Deep Searching..."):
+                    card_num = st.session_state.single_res['Card Number']
+                    deep_res = deep_extract_data(card_num)
+                    if deep_res:
+                        st.session_state.single_res['Name'] = deep_res.get('Name', 'N/A')
+                        st.session_state.single_res['Est Name'] = deep_res.get('Est Name', 'N/A')
+                        st.session_state.single_res['Company Code'] = deep_res.get('Company Code', 'N/A')
+                        st.session_state.single_res['Job Description'] = deep_res.get('Designation', st.session_state.single_res['Job Description'])
+                        st.rerun()
 
 with tab2:
     st.subheader("Batch Processing Control")
@@ -259,64 +345,3 @@ with tab2:
                             st.session_state.deep_search_state = 'stopped'
                             updated_df = pd.DataFrame(st.session_state.batch_results)
                             st.download_button("Download Updated Full Report (CSV)", updated_df.to_csv(index=False).encode('utf-8'), "updated_full_results.csv")
-
-# --- New Function: Deep Extract Data ---
-def deep_extract_data(card_num):
-    driver = get_driver()
-    try:
-        driver.get("https://inquiry.mohre.gov.ae/")
-        time.sleep(5)
-
-        # Force English if needed
-        lang_button = driver.find_element(By.ID, "btnlanguage")
-        if "English" in lang_button.text:
-            lang_button.click()
-            time.sleep(3)
-            driver.refresh()
-            time.sleep(5)
-
-        # Select "Electronic Work Permit Information" (value="EWPI")
-        driver.find_element(By.ID, "dropdownButton").click()
-        time.sleep(2)
-        search_input = driver.find_element(By.ID, "searchInput")
-        search_input.send_keys("Electronic Work Permit Information")
-        time.sleep(2)
-        options = driver.find_elements(By.CSS_SELECTOR, "#optionsList li")
-        for opt in options:
-            if opt.get_attribute("value") == "EWPI":
-                opt.click()
-                break
-        time.sleep(5)  # Wait for form to load
-
-        # Find input by label proximity (robust)
-        permit_input_xpath = "//label[contains(text(), 'Electronic Work Permit Number') or contains(text(), 'Work Permit Number') or contains(text(), 'Permit Number')]/following-sibling::input[1] | //span[contains(text(), 'Electronic Work Permit Number') or contains(text(), 'Work Permit Number') or contains(text(), 'Permit Number')]/following::input[1]"
-        permit_input = driver.find_element(By.XPATH, permit_input_xpath)
-        permit_input.send_keys(card_num)
-
-        # Bypass captcha with provided JS
-        driver.execute_script("""(function(){try{const tryFill=()=>{const code=Array.from(document.querySelectorAll('div,span,b,strong')).map(el=>el.innerText.trim()).find(txt=>/^\d{4}$/.test(txt));const input=Array.from(document.querySelectorAll('input')).find(i=>i.placeholder.includes("التحقق")||i.placeholder.toLowerCase().includes("captcha"));if(code&&input){input.value=code;input.dispatchEvent(new Event('input',{bubbles:true}));}else{setTimeout(tryFill,500);}};tryFill();}catch(e){console.error('Error:',e);}})();""")
-        time.sleep(3)
-
-        # Submit by text (robust)
-        submit_xpath = "//button[contains(text(), 'Submit') or contains(text(), 'Inquiry') or contains(text(), 'Search') or @type='submit']"
-        driver.find_element(By.XPATH, submit_xpath).click()
-        time.sleep(10)
-
-        def get_value(label):
-            try:
-                xpath = f"//span[contains(text(), '{label}')]/following::span[1] | //label[contains(text(), '{label}')]/following-sibling::div"
-                val = driver.find_element(By.XPATH, xpath).text.strip()
-                return translate_to_english(val) if val else 'N/A'
-            except: return 'N/A'
-
-        return {
-            "Name": get_value("Name"),
-            "Est Name": get_value("Est Name"),
-            "Company Code": get_value("Company Code"),
-            "Designation": get_value("Designation")
-        }
-    except Exception as e:
-        st.error(f"Deep search error for card {card_num}: {str(e)}")
-        return None
-    finally:
-        driver.quit()
