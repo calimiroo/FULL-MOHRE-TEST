@@ -1,22 +1,23 @@
-import streamlit as st 
-import pandas as pd 
-import time 
-import undetected_chromedriver as uc 
-from selenium.webdriver.common.by import By 
+import streamlit as st
+import pandas as pd
+import time
+import undetected_chromedriver as uc
+from selenium.webdriver.common.by import By
 from selenium.webdriver.support.ui import WebDriverWait
 from selenium.webdriver.support import expected_conditions as EC
-from selenium.common.exceptions import TimeoutException, NoSuchElementException, ElementNotInteractableException, StaleElementReferenceException
-from datetime import datetime, timedelta 
+from selenium.webdriver.common.keys import Keys
+from datetime import datetime, timedelta
 from deep_translator import GoogleTranslator
 import logging
+import os
 
 # --- إعداد السجل ---
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
-# --- إعداد الصفحة --- 
-st.set_page_config(page_title="MOHRE Portal", layout="wide") 
-st.title("HAMADA TRACING SITE TEST") 
+# --- إعداد الصفحة ---
+st.set_page_config(page_title="MOHRE Portal", layout="wide")
+st.title("HAMADA TRACING SITE TEST - FIXED")
 
 # --- إدارة جلسة العمل (Session State) ---
 if 'authenticated' not in st.session_state:
@@ -31,7 +32,6 @@ if 'deep_run_state' not in st.session_state:
     st.session_state['deep_run_state'] = 'stopped'
 if 'deep_progress' not in st.session_state:
     st.session_state['deep_progress'] = 0
-# إضافة متغيرات جديدة لدعم التفاعل في البحث الفردي
 if 'single_result' not in st.session_state:
     st.session_state['single_result'] = None
 if 'deep_single_running' not in st.session_state:
@@ -47,8 +47,8 @@ if 'single_search_executed' not in st.session_state:
 if 'deep_search_started' not in st.session_state:
     st.session_state['deep_search_started'] = False
 
-# قائمة الجنسيات (محفوظة كما هي)
-countries_list = ["Select Nationality", "Afghanistan", "Albania", "Algeria", "Andorra", "Angola", "Antigua and Barbuda", "Argentina", "Armenia", "Australia", "Austria", "Azerbaijan", "Bahamas", "Bahrain", "Bangladesh", "Barbados", "Belarus", "Belgium", "Belize", "Benin", "Bhutan", "Bolivia", "Bosnia and Herzegovina", "Botswana", "Brazil", "Brunei", "Bulgaria", "Burkina Faso", "Burundi", "Cabo Verde", "Cambodia", "Cameroon", "Canada", "Central African Republic", "Chad", "Chile", "China", "Colombia", "Comoros", "Congo (Congo-Brazzaville)", "Costa Rica", "Côte d'Ivoire", "Croatia", "Cuba", "Cyprus", "Czechia (Czech Republic)", "Democratic Republic of the Congo", "Denmark", "Djibouti", "Dominica", "Dominican Republic", "Ecuador", "Egypt", "El Salvador", "Equatorial Guinea", "Eritrea", "Estonia", "Eswatini", "Ethiopia", "Fiji", "Finland", "France", "Gabon", "Gambia", "Georgia", "Germany", "Ghana", "Greece", "Grenada", "Guatemala", "Guinea", "Guinea-Bissau", "Guyana", "Haiti", "Holy See", "Honduras", "Hungary", "Iceland", "India", "Indonesia", "Iran", "Iraq", "Ireland", "Israel", "Italy", "Jamaica", "Japan", "Jordan", "Kazakhstan", "Kenya", "Kiribati", "Kuwait", "Kyrgyzstan", "Laos", "Latvia", "Lebanon", "Lesotho", "Liberia", "Libya", "Liechtenstein", "Lithuania", "Luxembourg", "Madagascar", "Malawi", "Malaysia", "Maldives", "Mali", "Malta", "Marshall Islands", "Mauritania", "Mauritius", "Mexico", "Micronesia", "Moldova", "Monaco", "Mongolia", "Montenegro", "Morocco", "Mozambique", "Myanmar", "Namibia", "Nauru", "Nepal", "Netherlands", "New Zealand", "Nicaragua", "Niger", "Nigeria", "North Korea", "North Macedonia", "Norway", "Oman", "Pakistan", "Palau", "Palestine State", "Panama", "Papua New Guinea", "Paraguay", "Peru", "Philippines", "Poland", "Portugal", "Qatar", "Romania", "Russia", "Rwanda", "Saint Kitts and Nevis", "Saint Lucia", "Saint Vincent and the Grenadines", "Samoa", "San Marino", "Sao Tome and Principe", "Saudi Arabia", "Senegal", "Serbia", "Seychelles", "Sierra Leone", "Singapore", "Slovakia", "Slovenia", "Solomon Islands", "Somalia", "South Africa", "South Korea", "South Sudan", "Spain", "Sri Lanka", "Sudan", "Suriname", "Sweden", "Switzerland", "Syria", "Tajikistan", "Tanzania", "Thailand", "Timor-Leste", "Togo", "Tonga", "Trinidad and Tobago", "Tunisia", "Turkey", "Turkmenistan", "Tuvalu", "Uganda", "Ukraine", "United Arab Emirates", "United Kingdom", "United States of America", "Uruguay", "Uzbekistan", "Vanuatu", "Venezuela", "Vietnam", "Yemen", "Zambia", "Zimbabwe"] 
+# قائمة الجنسيات
+countries_list = ["Select Nationality", "Afghanistan", "Albania", "Algeria", "Andorra", "Angola", "Antigua and Barbuda", "Argentina", "Armenia", "Australia", "Austria", "Azerbaijan", "Bahamas", "Bahrain", "Bangladesh", "Barbados", "Belarus", "Belgium", "Belize", "Benin", "Bhutan", "Bolivia", "Bosnia and Herzegovina", "Botswana", "Brazil", "Brunei", "Bulgaria", "Burkina Faso", "Burundi", "Cabo Verde", "Cambodia", "Cameroon", "Canada", "Central African Republic", "Chad", "Chile", "China", "Colombia", "Comoros", "Congo (Congo-Brazzaville)", "Costa Rica", "Côte d'Ivoire", "Croatia", "Cuba", "Cyprus", "Czechia (Czech Republic)", "Democratic Republic of the Congo", "Denmark", "Djibouti", "Dominica", "Dominican Republic", "Ecuador", "Egypt", "El Salvador", "Equatorial Guinea", "Eritrea", "Estonia", "Eswatini", "Ethiopia", "Fiji", "Finland", "France", "Gabon", "Gambia", "Georgia", "Germany", "Ghana", "Greece", "Grenada", "Guatemala", "Guinea", "Guinea-Bissau", "Guyana", "Haiti", "Holy See", "Honduras", "Hungary", "Iceland", "India", "Indonesia", "Iran", "Iraq", "Ireland", "Israel", "Italy", "Jamaica", "Japan", "Jordan", "Kazakhstan", "Kenya", "Kiribati", "Kuwait", "Kyrgyzstan", "Laos", "Latvia", "Lebanon", "Lesotho", "Liberia", "Libya", "Liechtenstein", "Lithuania", "Luxembourg", "Madagascar", "Malawi", "Malaysia", "Maldives", "Mali", "Malta", "Marshall Islands", "Mauritania", "Mauritius", "Mexico", "Micronesia", "Moldova", "Monaco", "Mongolia", "Montenegro", "Morocco", "Mozambique", "Myanmar", "Namibia", "Nauru", "Nepal", "Netherlands", "New Zealand", "Nicaragua", "Niger", "Nigeria", "North Korea", "North Macedonia", "Norway", "Oman", "Pakistan", "Palau", "Palestine State", "Panama", "Papua New Guinea", "Paraguay", "Peru", "Philippines", "Poland", "Portugal", "Qatar", "Romania", "Russia", "Rwanda", "Saint Kitts and Nevis", "Saint Lucia", "Saint Vincent and the Grenadines", "Samoa", "San Marino", "Sao Tome and Principe", "Saudi Arabia", "Senegal", "Serbia", "Seychelles", "Sierra Leone", "Singapore", "Slovakia", "Slovenia", "Solomon Islands", "Somalia", "South Africa", "South Korea", "South Sudan", "Spain", "Sri Lanka", "Sudan", "Suriname", "Sweden", "Switzerland", "Syria", "Tajikistan", "Tanzania", "Thailand", "Timor-Leste", "Togo", "Tonga", "Trinidad and Tobago", "Tunisia", "Turkey", "Turkmenistan", "Tuvalu", "Uganda", "Ukraine", "United Arab Emirates", "United Kingdom", "United States of America", "Uruguay", "Uzbekistan", "Vanuatu", "Venezuela", "Vietnam", "Yemen", "Zambia", "Zimbabwe"]
 
 # --- تسجيل الدخول ---
 if not st.session_state['authenticated']:
@@ -78,9 +78,12 @@ def translate_to_english(text):
 
 def get_driver():
     options = uc.ChromeOptions()
-    options.add_argument('--headless')
+    # استخدام وضع headless الجديد لتجنب اكتشاف البوت
+    options.add_argument('--headless=new') 
     options.add_argument('--no-sandbox')
     options.add_argument('--disable-dev-shm-usage')
+    options.add_argument('--window-size=1920,1080') # ضروري جداً للمواقع الحديثة
+    options.add_argument('--start-maximized')
     return uc.Chrome(options=options, headless=True, use_subprocess=False)
 
 def color_status(val):
@@ -92,12 +95,16 @@ def extract_data(passport, nationality, dob_str):
     driver = get_driver()
     try:
         driver.get("https://mobile.mohre.gov.ae/Mob_Mol/MolWeb/MyContract.aspx?Service_Code=1005&lang=en")
-        time.sleep(4)
-        driver.find_element(By.ID, "txtPassportNumber").send_keys(passport)
+        wait = WebDriverWait(driver, 15)
+        
+        # الانتظار حتى تحميل العناصر
+        passport_field = wait.until(EC.element_to_be_clickable((By.ID, "txtPassportNumber")))
+        passport_field.send_keys(passport)
+        
         driver.find_element(By.ID, "CtrlNationality_txtDescription").click()
         time.sleep(1)
         try:
-            search_box = driver.find_element(By.CSS_SELECTOR, "#ajaxSearchBoxModal .form-control")
+            search_box = wait.until(EC.element_to_be_clickable((By.CSS_SELECTOR, "#ajaxSearchBoxModal .form-control")))
             search_box.send_keys(nationality)
             time.sleep(1)
             items = driver.find_elements(By.CSS_SELECTOR, "#ajaxSearchBoxModal .items li a")
@@ -110,9 +117,17 @@ def extract_data(passport, nationality, dob_str):
         driver.execute_script("arguments[0].removeAttribute('readonly');", dob_input)
         dob_input.clear()
         dob_input.send_keys(dob_str)
+        # تفعيل الحدث للتأكد
         driver.execute_script("arguments[0].dispatchEvent(new Event('change'));", dob_input)
+        
         driver.find_element(By.ID, "btnSubmit").click()
-        time.sleep(8)
+        
+        # انتظار ذكي للنتيجة
+        try:
+            wait.until(EC.presence_of_element_located((By.XPATH, "//span[contains(text(), 'Card Number')]")))
+        except TimeoutException:
+            # إذا لم يظهر العنصر بعد 10 ثواني، نعتبره غير موجود
+            pass
 
         def get_value(label):
             try:
@@ -149,9 +164,8 @@ def extract_data(passport, nationality, dob_str):
 
 # --- وظيفة البحث العميق في الموقع الثاني (inquiry.mohre.gov.ae) ---
 def deep_extract_by_card(card_number):
-    """تحاول الوصول لصفحة Inquiry وتبحث برقم البطاقة وتحصل على Name, Est Name, Company Code, Designation"""
+    """تحاول الوصول لصفحة Inquiry وتبحث برقم البطاقة"""
     if not card_number or card_number in ['N/A', 'Not Found', 'Not Available']:
-        logger.info(f"Card number is invalid ({card_number}), skipping deep search.")
         return {
             'Name': 'Invalid Card Number',
             'Est Name': 'Invalid Card Number',
@@ -162,170 +176,122 @@ def deep_extract_by_card(card_number):
     driver = get_driver()
     try:
         driver.get("https://inquiry.mohre.gov.ae/")
-        wait = WebDriverWait(driver, 20) # زيادة وقت الانتظار
+        wait = WebDriverWait(driver, 25)
 
-        # 1) افتح القائمة المنسدلة واختر "Electronic Work Permit Information"
+        # 1. فتح القائمة المنسدلة للخدمات
+        logger.info("Opening dropdown...")
         dropdown_btn = wait.until(EC.element_to_be_clickable((By.ID, "dropdownButton")))
-        # التمرير إلى العنصر لجعله مرئيًا
         driver.execute_script("arguments[0].scrollIntoView({block: 'center'});", dropdown_btn)
-        dropdown_btn.click()
         time.sleep(1)
+        dropdown_btn.click()
 
-        # انتظر حتى تصبح القائمة مرئية
-        wait.until(EC.presence_of_element_located((By.ID, "dropdownList")))
+        # 2. اختيار الخدمة الصحيحة
+        logger.info("Selecting Service...")
+        # استخدام XPath للبحث عن النص بدقة
+        service_option = wait.until(EC.element_to_be_clickable((By.XPATH, "//li[contains(., 'Electronic Work Permit Information')]")))
+        service_option.click()
+        time.sleep(2) # انتظار تحميل نموذج الخدمة
 
-        # ابحث عن العنصر باستخدام النص أو القيمة
-        ewpi_option = None
-        try:
-            ewpi_option = driver.find_element(By.CSS_SELECTOR, "li[value='EWPI']")
-        except:
-            pass
-        if not ewpi_option:
+        # 3. إدخال رقم البطاقة (تصحيح الخطأ هنا: استخدام send_keys بدلاً من JS)
+        logger.info(f"Entering card number: {card_number}")
+        
+        # البحث عن الحقل بذكاء (قد يتغير الـ ID)
+        card_input = None
+        possible_selectors = [
+            (By.NAME, "CardNumber"), # تخمين
+            (By.CSS_SELECTOR, "input[type='text']"),
+            (By.XPATH, "//input[@placeholder='Enter Work Permit Number']"),
+            (By.XPATH, "//input[contains(@class, 'form-control')]")
+        ]
+        
+        for by, val in possible_selectors:
             try:
-                ewpi_option = driver.find_element(By.XPATH, "//li[contains(text(), 'Electronic Work Permit Information')]")
+                inputs = driver.find_elements(by, val)
+                for inp in inputs:
+                    if inp.is_displayed() and inp.is_enabled():
+                        card_input = inp
+                        break
+                if card_input: break
             except:
                 pass
         
-        if ewpi_option:
-            # التمرير إلى الخيار
-            driver.execute_script("arguments[0].scrollIntoView({block: 'center'});", ewpi_option)
-            # استخدام execute_script للنقر لأنه أكثر موثوقية
-            driver.execute_script("arguments[0].click();", ewpi_option)
-            time.sleep(1)
-        else:
-            logger.warning("Could not find 'Electronic Work Permit Information' option.")
-            return None
-
-        # 2) أدخل رقم البطاقة
-        # حاول العثور على حقل الإدخال المناسب
-        card_input = None
-        try:
-            # حاول العثور على حقل الإدخال باستخدام placeholder
-            card_input = wait.until(EC.presence_of_element_located((By.XPATH, "//input[contains(@placeholder, 'Card') or contains(@placeholder, 'Work Permit')]")))
-        except:
-            pass
-        if not card_input:
-            try:
-                # حاول العثور على أول حقل إدخال نص
-                card_input = driver.find_element(By.TAG_NAME, "input")
-            except:
-                pass
-
         if card_input:
-            # التمرير إلى الحقل
-            driver.execute_script("arguments[0].scrollIntoView({block: 'center'});", card_input)
-            # مسح الحقل
-            driver.execute_script("arguments[0].value = ''; arguments[0].dispatchEvent(new Event('input'));", card_input)
-            # إدخال الرقم
-            driver.execute_script(f"arguments[0].value = '{card_number}'; arguments[0].dispatchEvent(new Event('input'));", card_input)
+            card_input.clear()
+            # الطريقة الصحيحة لتفعيل تفاعل الموقع
+            card_input.send_keys(card_number)
             time.sleep(0.5)
+            # إرسال زر TAB للتأكد من خروج التركيز وتفعيل التحقق
+            card_input.send_keys(Keys.TAB)
         else:
-            logger.warning("Could not find input field for card number.")
+            logger.error("Could not find card input field")
             return None
 
-        # 3) تجاوز الكابتشا - تم حذف السكربت المعقد
-        # بدلاً من ذلك، سنحاول فقط الانتظار قليلاً
-        time.sleep(2)
-
-        # 4) اضغط زر البحث
+        # 4. الضغط على زر البحث
+        logger.info("Clicking Search...")
+        time.sleep(1)
         search_btn = None
         try:
-            search_btn = wait.until(EC.element_to_be_clickable((By.ID, "btnSearch")))
+            search_btn = driver.find_element(By.ID, "btnSearch")
         except:
-            pass
-        if not search_btn:
-            try:
-                search_btn = driver.find_element(By.XPATH, "//button[contains(text(), 'Search') or contains(text(), 'بحث')]")
-            except:
-                pass
-        if not search_btn:
-            try:
-                search_btn = driver.find_element(By.TAG_NAME, "button")
-            except:
-                pass
-
+            # محاولة البحث عن الزر بالنص
+            search_btn = driver.find_element(By.XPATH, "//button[contains(., 'Search') or contains(., 'بحث')]")
+            
         if search_btn:
-            # التمرير إلى الزر
             driver.execute_script("arguments[0].scrollIntoView({block: 'center'});", search_btn)
-            # استخدام execute_script للنقر
-            driver.execute_script("arguments[0].click();", search_btn)
-            time.sleep(2) # انتظر رد فعل الزر
+            time.sleep(0.5)
+            search_btn.click()
         else:
-            logger.warning("Could not find search button.")
+            logger.error("Search button not found")
             return None
 
-        # 5) انتظر ظهور نتائج البحث
-        # انتظر حتى يظهر أحد عناصر النتيجة
-        result_found = False
-        for _ in range(5): # محاولة 5 مرات
-            try:
-                # ابحث عن اسم الموظف كمؤشر على وجود نتيجة
-                name_element = driver.find_element(By.XPATH, "//strong[contains(text(), 'Name')] | //label[contains(text(), 'Name')]")
-                if name_element:
-                    result_found = True
-                    break
-            except:
-                pass
-            time.sleep(2)
+        # 5. انتظار النتائج
+        logger.info("Waiting for results...")
+        # ننتظر ظهور أي عنصر يدل على النتيجة (مثل الاسم أو اسم المنشأة)
+        try:
+            wait.until(EC.presence_of_element_located((By.XPATH, "//*[contains(text(), 'Person Name') or contains(text(), 'Company Name') or contains(text(), 'Designation')]")))
+        except TimeoutException:
+            logger.warning("Timeout waiting for results or No records found.")
+            # قد تكون النتيجة "No Data Found"
+            if "no data" in driver.page_source.lower():
+                return {'Name': 'Not Available', 'Est Name': 'Not Available', 'Company Code': 'Not Available', 'Designation': 'Not Available'}
 
-        if not result_found:
-            logger.info(f"No results found for card {card_number}. This might be due to data unavailability on the inquiry portal.")
-            return {
-                'Name': 'Not Available',
-                'Est Name': 'Not Available',
-                'Company Code': 'Not Available',
-                'Designation': 'Not Available'
-            }
-
-        # 6) استخرج البيانات
-        def get_value_page(label):
+        # 6. استخراج البيانات (تحسين طريقة البحث عن النصوص)
+        def robust_get_text(label_keywords):
             try:
-                # ابحث عن العنصر الذي يحتوي على النص المطلوب
-                elements = driver.find_elements(By.XPATH, f"//*[contains(text(), '{label}')]")
-                for el in elements:
-                    # ابحث عن العنصر التالي مباشرةً (مثل span أو div)
-                    try:
-                        next_elem = el.find_element(By.XPATH, "./following::span[1]")
-                        txt = next_elem.text.strip()
-                        if txt:
-                            return txt
-                    except:
-                        try:
-                            next_elem = el.find_element(By.XPATH, "./following::div[1]")
-                            txt = next_elem.text.strip()
-                            if txt:
+                # نبحث عن الليبل أولاً
+                for keyword in label_keywords:
+                    # XPath يبحث عن العنصر الذي يحتوي النص، ثم يأخذ العنصر التالي له أو القيمة بداخله
+                    xpaths = [
+                        f"//*[contains(text(), '{keyword}')]/following-sibling::span[1]",
+                        f"//*[contains(text(), '{keyword}')]/following-sibling::div[1]",
+                        f"//*[contains(text(), '{keyword}')]/../following-sibling::div[1]", # أحيانا يكون في هيكل Grid
+                        f"//label[contains(text(), '{keyword}')]/..//following-sibling::div"
+                    ]
+                    for xp in xpaths:
+                        elems = driver.find_elements(By.XPATH, xp)
+                        for elem in elems:
+                            txt = elem.text.strip()
+                            if txt and txt != keyword: # التأكد أنه ليس العنوان نفسه
                                 return txt
-                        except:
-                            continue
-                # fallback: ابحث في نص الصفحة
-                page_text = driver.find_element(By.TAG_NAME, 'body').text
-                lines = page_text.split('\n')
-                for line in lines:
-                    if label in line:
-                        parts = line.split(':')
-                        if len(parts) > 1:
-                            return parts[1].strip()
                 return 'Not Available'
-            except Exception as e:
-                logger.warning(f"Error getting value for '{label}': {e}")
+            except Exception:
                 return 'Not Available'
 
-        # اسحب القيم
-        name = get_value_page('Name')
-        est_name = get_value_page('Est Name')
-        if est_name == 'Not Available':
-            est_name = get_value_page('Est Name:')
-        company_code = get_value_page('Company Code')
-        designation = get_value_page('Designation')
+        name = robust_get_text(['Person Name', 'Name', 'الإسم'])
+        est_name = robust_get_text(['Company Name', 'Establishment Name', 'Est Name', 'اسم المنشأة'])
+        company_code = robust_get_text(['Company Code', 'Establishment Code', 'رقم المنشأة'])
+        designation = robust_get_text(['Designation', 'Job', 'المهنة'])
 
+        # تنظيف البيانات إذا رجعنا بنفس اسم الليبل
         return {
-            'Name': name if name else 'Not Available',
-            'Est Name': est_name if est_name else 'Not Available',
-            'Company Code': company_code if company_code else 'Not Available',
-            'Designation': designation if designation else 'Not Available'
+            'Name': name,
+            'Est Name': est_name,
+            'Company Code': company_code,
+            'Designation': designation
         }
+
     except Exception as e:
-        logger.error(f"Error in deep_extract_by_card for card {card_number}: {e}")
+        logger.error(f"Error in deep_extract_by_card: {e}")
         return {
             'Name': 'Error',
             'Est Name': 'Error',
@@ -335,9 +301,8 @@ def deep_extract_by_card(card_number):
     finally:
         try:
             driver.quit()
-        except Exception:
+        except:
             pass
-
 
 # --- واجهة المستخدم ---
 
@@ -374,8 +339,8 @@ with tab1:
             if st.session_state['single_result']['Card Number'] != 'N/A' and st.session_state['single_result']['Card Number'] != 'Not Found':
                 card_num_display = st.session_state['single_result']['Card Number']
 
-                # عرض الجدول الأصلي
-                st.dataframe(result_df, use_container_width=True)
+                # عرض الجدول الأصلي (تم استبدال use_container_width بـ width)
+                st.dataframe(result_df, width=None) # Streamlit سيجعله stretch افتراضياً الآن أو يمكنك استخدام use_container_width=True مع تجاهل التحذير حتى التحديث القادم
                 
                 # إنشاء زر للبحث العميق
                 if st.button(f"🔍 Deep Search Card {card_num_display}", key=f"deep_search_{card_num_display}"):
@@ -413,7 +378,7 @@ with tab1:
                 # عرض النتيجة المحدثة بعد انتهاء البحث العميق
                 if st.session_state['deep_single_result']:
                     updated_df = pd.DataFrame([st.session_state['single_result']])
-                    st.dataframe(updated_df, use_container_width=True)
+                    st.dataframe(updated_df, width=None)
                     # زر تحميل النتيجة المحدثة
                     csv = updated_df.to_csv(index=False).encode('utf-8')
                     st.download_button(
@@ -424,7 +389,7 @@ with tab1:
                     )
             else:
                 # إذا لم يكن هناك Card Number، عرض النتيجة العادية
-                st.dataframe(result_df, use_container_width=True)
+                st.dataframe(result_df, width=None)
         else:
             st.info("Please enter search criteria and click 'Search Now'.")
     else:
@@ -521,7 +486,8 @@ with tab2:
             stats_area.markdown(f"✅ **Actual Success (Found):** {actual_success} | ⏱️ **Total Time:** `{time_str}`")
             current_df = pd.DataFrame(st.session_state.batch_results)
             styled_df = current_df.style.map(color_status, subset=['Status'])
-            live_table_area.dataframe(styled_df, use_container_width=True)
+            # تم حذف use_container_width للتوافق مع التحديث الجديد
+            live_table_area.dataframe(styled_df)
 
         # عند اكتمال البحث الأولي
         if st.session_state.run_state == 'running' and len(st.session_state.batch_results) == len(df):
@@ -594,7 +560,7 @@ with tab2:
                         # حدث عرض الجدول الأولي مباشرةً
                         current_df = pd.DataFrame(st.session_state.batch_results)
                         styled_df = current_df.style.map(color_status, subset=['Status'])
-                        live_table_area.dataframe(styled_df, use_container_width=True)
+                        live_table_area.dataframe(styled_df)
 
                     if st.session_state.deep_current_index >= len(st.session_state.batch_results):
                         st.success(f"Deep Search Completed: {deep_success}/{deep_total} succeeded")
@@ -610,5 +576,3 @@ with tab2:
                             "full_results_with_deep.csv",
                             mime='text/csv'
                         )
-
-# نهاية الملف
