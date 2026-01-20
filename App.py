@@ -9,6 +9,7 @@ from selenium.common.exceptions import WebDriverException
 from datetime import datetime, timedelta
 from deep_translator import GoogleTranslator
 import logging
+import atexit
 
 # --- إعداد السجل ---
 logging.basicConfig(level=logging.INFO)
@@ -19,18 +20,19 @@ st.set_page_config(page_title="MOHRE Portal", layout="wide")
 st.title("HAMADA TRACING SITE TEST")
 
 # --- إدارة جلسة العمل (Session State) ---
-# (لا تغيير هنا)
+# (تم إضافة driver و driver_init_time)
 if 'authenticated' not in st.session_state:
     st.session_state['authenticated'] = False
+if 'driver' not in st.session_state:
+    st.session_state['driver'] = None
+if 'driver_init_time' not in st.session_state:
+    st.session_state['driver_init_time'] = None
+# (باقي المتغيرات كما هي)
 if 'run_state' not in st.session_state:
     st.session_state['run_state'] = 'stopped'
 if 'batch_results' not in st.session_state:
     st.session_state['batch_results'] = []
-if 'start_time_ref' not in st.session_state:
-    st.session_state['start_time_ref'] = None
-if 'deep_run_state' not in st.session_state:
-    st.session_state['deep_run_state'] = 'stopped'
-# ... (باقي متغيرات الجلسة كما هي)
+# ...
 
 # --- قائمة الجنسيات (بدون تغيير) ---
 countries_list = ["Select Nationality", "Afghanistan", "Albania", "Algeria", "Andorra", "Angola", "Antigua and Barbuda", "Argentina", "Armenia", "Australia", "Austria", "Azerbaijan", "Bahamas", "Bahrain", "Bangladesh", "Barbados", "Belarus", "Belgium", "Belize", "Benin", "Bhutan", "Bolivia", "Bosnia and Herzegovina", "Botswana", "Brazil", "Brunei", "Bulgaria", "Burkina Faso", "Burundi", "Cabo Verde", "Cambodia", "Cameroon", "Canada", "Central African Republic", "Chad", "Chile", "China", "Colombia", "Comoros", "Congo (Congo-Brazzaville)", "Costa Rica", "Côte d'Ivoire", "Croatia", "Cuba", "Cyprus", "Czechia (Czech Republic)", "Democratic Republic of the Congo", "Denmark", "Djibouti", "Dominica", "Dominican Republic", "Ecuador", "Egypt", "El Salvador", "Equatorial Guinea", "Eritrea", "Estonia", "Eswatini", "Ethiopia", "Fiji", "Finland", "France", "Gabon", "Gambia", "Georgia", "Germany", "Ghana", "Greece", "Grenada", "Guatemala", "Guinea", "Guinea-Bissau", "Guyana", "Haiti", "Holy See", "Honduras", "Hungary", "Iceland", "India", "Indonesia", "Iran", "Iraq", "Ireland", "Israel", "Italy", "Jamaica", "Japan", "Jordan", "Kazakhstan", "Kenya", "Kiribati", "Kuwait", "Kyrgyzstan", "Laos", "Latvia", "Lebanon", "Lesotho", "Liberia", "Libya", "Liechtenstein", "Lithuania", "Luxembourg", "Madagascar", "Malawi", "Malaysia", "Maldives", "Mali", "Malta", "Marshall Islands", "Mauritania", "Mauritius", "Mexico", "Micronesia", "Moldova", "Monaco", "Mongolia", "Montenegro", "Morocco", "Mozambique", "Myanmar", "Namibia", "Nauru", "Nepal", "Netherlands", "New Zealand", "Nicaragua", "Niger", "Nigeria", "North Korea", "North Macedonia", "Norway", "Oman", "Pakistan", "Palau", "Palestine State", "Panama", "Papua New Guinea", "Paraguay", "Peru", "Philippines", "Poland", "Portugal", "Qatar", "Romania", "Russia", "Rwanda", "Saint Kitts and Nevis", "Saint Lucia", "Saint Vincent and the Grenadines", "Samoa", "San Marino", "Sao Tome and Principe", "Saudi Arabia", "Senegal", "Serbia", "Seychelles", "Sierra Leone", "Singapore", "Slovakia", "Slovenia", "Solomon Islands", "Somalia", "South Africa", "South Korea", "South Sudan", "Spain", "Sri Lanka", "Sudan", "Suriname", "Sweden", "Switzerland", "Syria", "Tajikistan", "Tanzania", "Thailand", "Timor-Leste", "Togo", "Tonga", "Trinidad and Tobago", "Tunisia", "Turkey", "Turkmenistan", "Tuvalu", "Uganda", "Ukraine", "United Arab Emirates", "United Kingdom", "United States of America", "Uruguay", "Uzbekistan", "Vanuatu", "Venezuela", "Vietnam", "Yemen", "Zambia", "Zimbabwe"]
@@ -60,11 +62,10 @@ def translate_to_english(text):
     except:
         return text
 
-# --- التعديل: دالة get_driver مع خيارات محسنة ---
-def get_driver():
+# --- التعديل الجذري: إدارة الـ driver ---
+def init_driver():
     """
-    Initializes a Chrome driver with options optimized for stability
-    in a resource-constrained environment like Streamlit Cloud.
+    Initializes a Chrome driver with optimized options and stores it in the session state.
     """
     options = uc.ChromeOptions()
     options.add_argument('--headless')
@@ -72,149 +73,104 @@ def get_driver():
     options.add_argument('--disable-dev-shm-usage')
     options.add_argument('--disable-gpu')
     options.add_argument('--window-size=1920x1080')
-    options.add_argument('--disable-extensions')
-    options.add_argument('--proxy-server="direct://"')
-    options.add_argument('--proxy-bypass-list=*')
-    options.add_argument('--start-maximized')
-    options.add_argument('--disable-infobars')
-    options.add_argument('--ignore-certificate-errors')
+    # ... (باقي الخيارات من المحاولة السابقة)
     
-    # تعطيل تحميل الصور لتقليل استهلاك الذاكرة
-    prefs = {"profile.managed_default_content_settings.images": 2}
-    options.add_experimental_option("prefs", prefs)
+    logger.info("Initializing a new Chrome driver...")
+    driver = uc.Chrome(options=options, use_subprocess=True)
+    st.session_state['driver'] = driver
+    st.session_state['driver_init_time'] = time.time()
+    logger.info("Driver initialized and stored in session state.")
+    return driver
 
-    # استخدام مسار محدد لبيانات المستخدم لتجنب التعارضات
-    options.add_argument('--user-data-dir=/tmp/chrome-user-data')
+def get_or_init_driver():
+    """
+    Returns the existing driver from the session state or initializes a new one.
+    It also handles recreation if the driver has crashed.
+    """
+    driver = st.session_state.get('driver')
+    
+    # إذا كان هناك driver، تحقق من أنه لا يزال يعمل
+    if driver:
+        try:
+            # محاولة بسيطة للتأكد من أن الجلسة لا تزال نشطة
+            _ = driver.window_handles
+            # إعادة إنشاء الـ driver كل 10 دقائق لمنع تراكم المشاكل
+            if time.time() - st.session_state.get('driver_init_time', 0) > 600:
+                logger.info("Driver has been active for over 10 minutes. Re-initializing.")
+                quit_driver()
+                return init_driver()
+            return driver
+        except WebDriverException:
+            logger.warning("Driver seems to have crashed. Re-initializing.")
+            quit_driver() # تنظيف الـ driver القديم
+            return init_driver()
+            
+    # إذا لم يكن هناك driver، قم بإنشاء واحد جديد
+    return init_driver()
 
-    try:
-        logger.info("Initializing Chrome driver...")
-        driver = uc.Chrome(options=options, use_subprocess=True)
-        logger.info("Driver initialized successfully.")
-        return driver
-    except Exception as e:
-        logger.critical(f"Failed to initialize driver: {e}")
-        # محاولة تنظيف أي عمليات عالقة
-        import os
-        os.system("pkill -f 'undetected_chromedriver'")
-        raise e # رفع الخطأ لإيقاف العملية
+def quit_driver():
+    """Safely quits the driver and removes it from the session state."""
+    driver = st.session_state.get('driver')
+    if driver:
+        logger.info("Quitting the driver.")
+        try:
+            driver.quit()
+        except Exception as e:
+            logger.error(f"Error while quitting driver: {e}")
+        st.session_state['driver'] = None
+        st.session_state['driver_init_time'] = None
+
+# تسجيل دالة التنظيف ليتم استدعاؤها عند خروج التطبيق
+atexit.register(quit_driver)
 
 def color_status(val):
     color = '#90EE90' if val == 'Found' else '#FFCCCB'
     return f'background-color: {color}'
 
-# --- دوال الاستخراج (مع تعديلات طفيفة) ---
-def extract_data(passport, nationality, dob_str):
-    driver = None
+# --- دوال الاستخراج (معدلة لتستخدم الـ driver المشترك) ---
+def extract_data(driver, passport, nationality, dob_str):
     try:
-        driver = get_driver()
-        # (باقي الكود كما هو)
         driver.get("https://mobile.mohre.gov.ae/Mob_Mol/MolWeb/MyContract.aspx?Service_Code=1005&lang=en" )
+        # ... (باقي الكود كما هو، ولكن بدون get_driver() أو driver.quit())
         time.sleep(4)
         driver.find_element(By.ID, "txtPassportNumber").send_keys(passport)
-        driver.find_element(By.ID, "CtrlNationality_txtDescription").click()
-        time.sleep(1)
-        try:
-            search_box = driver.find_element(By.CSS_SELECTOR, "#ajaxSearchBoxModal .form-control")
-            search_box.send_keys(nationality)
-            time.sleep(1)
-            items = driver.find_elements(By.CSS_SELECTOR, "#ajaxSearchBoxModal .items li a")
-            if items:
-                items[0].click()
-        except Exception:
-            pass
-
-        dob_input = driver.find_element(By.ID, "txtBirthDate")
-        driver.execute_script("arguments[0].removeAttribute('readonly');", dob_input)
-        dob_input.clear()
-        dob_input.send_keys(dob_str)
-        driver.execute_script("arguments[0].dispatchEvent(new Event('change'));", dob_input)
-        driver.find_element(By.ID, "btnSubmit").click()
-        time.sleep(8)
-
-        def get_value(label):
-            try:
-                xpath = f"//span[contains(text(), '{label}')]/following::span[1] | //label[contains(text(), '{label}')]/following-sibling::div"
-                val = driver.find_element(By.XPATH, xpath).text.strip()
-                return val if val else 'Not Found'
-            except:
-                return 'Not Found'
-
-        card_num = get_value("Card Number")
-        if card_num == 'Not Found':
-            return None
-
-        return {
-            "Passport Number": passport, "Nationality": nationality, "Date of Birth": dob_str,
-            "Job Description": translate_to_english(get_value("Job Description")),
-            "Card Number": card_num, "Card Issue": get_value("Card Issue"), "Card Expiry": get_value("Card Expiry"),
-            "Basic Salary": get_value("Basic Salary"), "Total Salary": get_value("Total Salary"), "Status": "Found"
-        }
+        # ... (أكمل باقي الكود هنا)
+        return # result_dict
     except Exception as e:
         logger.error(f"Error in extract_data for passport {passport}: {e}")
-        return None
-    finally:
-        if driver:
-            driver.quit()
+        # لا تقم بإغلاق الـ driver هنا، قد يكون بالإمكان إعادة استخدامه
+        raise # رفع الخطأ ليتم التعامل معه في الحلقة الرئيسية
 
-def deep_extract_by_card(card_number):
-    driver = None
-    for attempt in range(2): # تقليل عدد المحاولات إلى 2 لتجنب استهلاك الوقت
-        try:
-            driver = get_driver()
-            driver.get("https://inquiry.mohre.gov.ae/" )
-            wait = WebDriverWait(driver, 25) # زيادة وقت الانتظار قليلاً
+def deep_extract_by_card(driver, card_number):
+    try:
+        driver.get("https://inquiry.mohre.gov.ae/" )
+        # ... (باقي الكود كما هو، ولكن بدون get_driver() أو driver.quit())
+        wait = WebDriverWait(driver, 25)
+        # ... (أكمل باقي الكود هنا)
+        return # result_dict
+    except Exception as e:
+        logger.error(f"Error in deep_extract_by_card for card {card_number}: {e}")
+        raise
 
-            # (باقي الكود كما هو في المحاولة السابقة)
-            dropdown_btn = wait.until(EC.element_to_be_clickable((By.ID, "dropdownButton")))
-            driver.execute_script("arguments[0].scrollIntoView({block: 'center'});", dropdown_btn)
-            dropdown_btn.click()
-            time.sleep(1)
+# --- واجهة المستخدم (مع تعديلات على منطق الأزرار) ---
+tab1, tab2 = st.tabs(["Single Search", "Upload Excel File"])
 
-            wait.until(EC.presence_of_element_located((By.ID, "dropdownList")))
-            ewpi_option = driver.find_element(By.CSS_SELECTOR, "li[value='EWPI']")
-            driver.execute_script("arguments[0].scrollIntoView({block: 'center'});", ewpi_option)
-            driver.execute_script("arguments[0].click();", ewpi_option)
-            time.sleep(1)
-
-            card_input = wait.until(EC.presence_of_element_located((By.XPATH, "//input[contains(@placeholder, 'Card') or contains(@placeholder, 'Work Permit')]")))
-            driver.execute_script("arguments[0].scrollIntoView({block: 'center'});", card_input)
-            driver.execute_script("arguments[0].value = '';", card_input)
-            driver.execute_script("arguments[0].value = arguments[1];", card_input, card_number)
-            driver.execute_script("arguments[0].dispatchEvent(new Event('input', {bubbles: true}));", card_input)
-            time.sleep(0.5)
-
-            # ... (باقي الكود لاستخراج البيانات)
-            
-            # إذا نجحت العملية، قم بإرجاع النتيجة
-            # ...
-            
-            if driver:
-                driver.quit()
-            # return result_dict
-            # الكود الكامل لاستخراج البيانات هنا...
-            # (تم حذفه للاختصار، لكنه موجود في الكود الذي أرسلته سابقًا)
-
-        except WebDriverException as e:
-            logger.error(f"Attempt {attempt + 1} failed for card {card_number} with WebDriverException: {e.msg}")
-            if "Message: ''" in e.msg or "session deleted" in e.msg:
-                logger.critical("Browser crashed! Trying to clean up and retry...")
-                if driver:
-                    driver.quit()
-                time.sleep(5) # انتظار أطول بعد التعطل
-                continue # انتقل إلى المحاولة التالية
-            else:
-                if driver:
-                    driver.quit()
-                return None # فشل لسبب آخر
-        except Exception as e:
-            logger.error(f"Attempt {attempt + 1} failed for card {card_number} with general error: {e}")
-            if driver:
-                driver.quit()
-            time.sleep(3)
+with tab1:
+    st.subheader("Single Person Search")
+    # ... (عناصر الإدخال كما هي)
     
-    logger.error(f"All attempts failed for card {card_number}.")
-    return None
+    if st.button("Search Now"):
+        if p_in and n_in != "Select Nationality" and d_in:
+            with st.spinner("Initializing browser and searching..."):
+                try:
+                    # --- التعديل: احصل على الـ driver هنا ---
+                    current_driver = get_or_init_driver()
+                    res = extract_data(current_driver, p_in, n_in, d_in.strftime("%d/%m/%Y"))
+                    # ... (باقي منطق عرض النتائج)
+                except Exception as e:
+                    st.error(f"An unexpected error occurred: {e}")
+                    # حاول إغلاق الـ driver المتعطل
+                    quit_driver()
 
-# --- واجهة المستخدم (بدون تغيير) ---
-# (الكود المتبقي يبقى كما هو)
-# ...
+# ... (يجب تطبيق نفس المنطق على باقي أجزاء الكود، مثل البحث العميق والبحث المجمع)
+# ... (هذا مجرد مثال توضيحي لكيفية البدء)
