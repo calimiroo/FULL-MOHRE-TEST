@@ -5,7 +5,7 @@ import undetected_chromedriver as uc
 from selenium.webdriver.common.by import By 
 from selenium.webdriver.support.ui import WebDriverWait
 from selenium.webdriver.support import expected_conditions as EC
-from selenium.common.exceptions import TimeoutException, NoSuchElementException
+from selenium.common.exceptions import TimeoutException, NoSuchElementException, ElementNotInteractableException, StaleElementReferenceException
 from datetime import datetime, timedelta 
 from deep_translator import GoogleTranslator
 import logging
@@ -153,10 +153,12 @@ def deep_extract_by_card(card_number):
     driver = get_driver()
     try:
         driver.get("https://inquiry.mohre.gov.ae/")
-        wait = WebDriverWait(driver, 15) # زيادة وقت الانتظار
+        wait = WebDriverWait(driver, 20) # زيادة وقت الانتظار
 
         # 1) افتح القائمة المنسدلة واختر "Electronic Work Permit Information"
         dropdown_btn = wait.until(EC.element_to_be_clickable((By.ID, "dropdownButton")))
+        # التمرير إلى العنصر لجعله مرئيًا
+        driver.execute_script("arguments[0].scrollIntoView({block: 'center'});", dropdown_btn)
         dropdown_btn.click()
         time.sleep(1)
 
@@ -176,7 +178,10 @@ def deep_extract_by_card(card_number):
                 pass
         
         if ewpi_option:
-            ewpi_option.click()
+            # التمرير إلى الخيار
+            driver.execute_script("arguments[0].scrollIntoView({block: 'center'});", ewpi_option)
+            # استخدام execute_script للنقر لأنه أكثر موثوقية
+            driver.execute_script("arguments[0].click();", ewpi_option)
             time.sleep(1)
         else:
             logger.warning("Could not find 'Electronic Work Permit Information' option.")
@@ -186,18 +191,26 @@ def deep_extract_by_card(card_number):
         # حاول العثور على حقل الإدخال المناسب
         card_input = None
         try:
-            card_input = wait.until(EC.presence_of_element_located((By.CSS_SELECTOR, "input[type='text']")))
+            # حاول العثور على حقل الإدخال باستخدام placeholder
+            card_input = wait.until(EC.presence_of_element_located((By.XPATH, "//input[contains(@placeholder, 'Card') or contains(@placeholder, 'Work Permit')]")))
         except:
             pass
         if not card_input:
             try:
-                card_input = driver.find_element(By.XPATH, "//input[contains(@placeholder, 'Card') or contains(@placeholder, 'Work Permit')]")
+                # حاول العثور على أول حقل إدخال نص
+                card_input = driver.find_element(By.TAG_NAME, "input")
             except:
                 pass
 
         if card_input:
-            card_input.clear()
-            card_input.send_keys(card_number)
+            # التمرير إلى الحقل
+            driver.execute_script("arguments[0].scrollIntoView({block: 'center'});", card_input)
+            # مسح الحقل
+            driver.execute_script("arguments[0].value = '';", card_input)
+            # إدخال الرقم
+            driver.execute_script(f"arguments[0].value = '{card_number}';", card_input)
+            # تشغيل حدث الإدخال
+            driver.execute_script("arguments[0].dispatchEvent(new Event('input', {{bubbles: true}}));", card_input)
             time.sleep(0.5)
         else:
             logger.warning("Could not find input field for card number.")
@@ -246,7 +259,10 @@ def deep_extract_by_card(card_number):
                 pass
 
         if search_btn:
-            search_btn.click()
+            # التمرير إلى الزر
+            driver.execute_script("arguments[0].scrollIntoView({block: 'center'});", search_btn)
+            # استخدام execute_script للنقر
+            driver.execute_script("arguments[0].click();", search_btn)
             time.sleep(2) # انتظر رد فعل الزر
         else:
             logger.warning("Could not find search button.")
@@ -255,7 +271,7 @@ def deep_extract_by_card(card_number):
         # 5) انتظر ظهور نتائج البحث
         # انتظر حتى يظهر أحد عناصر النتيجة
         result_found = False
-        for _ in range(3): # محاولة 3 مرات
+        for _ in range(5): # محاولة 5 مرات
             try:
                 # ابحث عن اسم الموظف كمؤشر على وجود نتيجة
                 name_element = driver.find_element(By.XPATH, "//strong[contains(text(), 'Name')] | //label[contains(text(), 'Name')]")
@@ -365,8 +381,7 @@ with tab1:
                 # عرض الجدول الأصلي
                 st.dataframe(result_df, use_container_width=True)
                 
-                # إنشاء رابط للبحث العميق باستخدام st.markdown
-                st.write(f"Click on the link below to perform a deep search for card {card_num_display}:")
+                # إنشاء زر للبحث العميق
                 if st.button(f"🔍 Deep Search Card {card_num_display}", key=f"deep_search_{card_num_display}"):
                     st.session_state['deep_single_running'] = True
                     st.session_state['deep_single_card'] = card_num_display
