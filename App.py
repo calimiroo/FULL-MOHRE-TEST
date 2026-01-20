@@ -206,11 +206,9 @@ def deep_extract_by_card(card_number):
             # التمرير إلى الحقل
             driver.execute_script("arguments[0].scrollIntoView({block: 'center'});", card_input)
             # مسح الحقل
-            driver.execute_script("arguments[0].value = '';", card_input)
+            driver.execute_script("arguments[0].value = ''; arguments[0].dispatchEvent(new Event('input'));", card_input)
             # إدخال الرقم
-            driver.execute_script(f"arguments[0].value = '{card_number}';", card_input)
-            # تشغيل حدث الإدخال
-            driver.execute_script("arguments[0].dispatchEvent(new Event('input', {{bubbles: true}}));", card_input)
+            driver.execute_script(f"arguments[0].value = '{card_number}'; arguments[0].dispatchEvent(new Event('input'));", card_input)
             time.sleep(0.5)
         else:
             logger.warning("Could not find input field for card number.")
