@@ -141,7 +141,6 @@ def deep_extract_by_card(card_number):
     try:
         driver.get("https://inquiry.mohre.gov.ae/")
         time.sleep(3)
-
         try:
             dropdown_btn = WebDriverWait(driver, 10).until(
                 EC.element_to_be_clickable((By.ID, "dropdownButton"))
@@ -157,7 +156,6 @@ def deep_extract_by_card(card_number):
             st.warning(f"Dropdown selection issue: {str(e)}")
 
         time.sleep(2)
-
         card_input = None
         try:
             inputs = driver.find_elements(By.CSS_SELECTOR, "input[type='text']")
@@ -194,7 +192,6 @@ def deep_extract_by_card(card_number):
             st.warning(f"Captcha handling issue: {str(e)}")
 
         time.sleep(2)
-
         try:
             search_button = None
             buttons = driver.find_elements(By.TAG_NAME, "button")
@@ -221,49 +218,25 @@ def deep_extract_by_card(card_number):
                                 value = siblings[i + 1].text.strip()
                                 if value and value != label_text:
                                     return value
-                    except:
-                        continue
-                page_text = driver.find_element(By.TAG_NAME, "body").text
-                lines = page_text.split('\n')
-                for i, line in enumerate(lines):
-                    if label_text in line:
-                        if ':' in line:
-                            parts = line.split(':', 1)
-                            if len(parts) > 1 and parts[1].strip():
-                                return parts[1].strip()
-                        if i + 1 < len(lines):
-                            next_line = lines[i + 1].strip()
-                            if next_line and next_line != label_text:
-                                return next_line
+                    except: continue
                 return 'Not Found'
-            except Exception:
-                return 'Not Found'
+            except: return 'Not Found'
 
         name = extract_field_value('Name')
-        est_name = extract_field_value('Est Name')
-        if est_name == 'Not Found': est_name = extract_field_value('Establishment Name')
-        company_code = extract_field_value('Company Code')
-        if company_code == 'Not Found': company_code = extract_field_value('Est Code')
-        designation = extract_field_value('Designation')
-        if designation == 'Not Found': designation = extract_field_value('Job Title')
+        est_name = extract_field_value('Est Name') or extract_field_value('Establishment Name')
+        company_code = extract_field_value('Company Code') or extract_field_value('Est Code')
+        designation = extract_field_value('Designation') or extract_field_value('Job Title')
 
         if all(v == 'Not Found' for v in [name, est_name, company_code, designation]):
             return None
 
-        return {
-            'Name': name,
-            'Est Name': est_name,
-            'Company Code': company_code,
-            'Designation': designation
-        }
+        return {'Name': name, 'Est Name': est_name, 'Company Code': company_code, 'Designation': designation}
     except Exception as e:
-        st.error(f"Deep search error for card {card_number}: {str(e)}")
+        st.error(f"Deep search error: {str(e)}")
         return None
     finally:
-        try:
-            driver.quit()
-        except:
-            pass
+        try: driver.quit()
+        except: pass
 
 # --- واجهة المستخدم ---
 tab1, tab2 = st.tabs(["Single Search", "Upload Excel File"]) 
@@ -279,7 +252,7 @@ with tab1:
     with col_btn1:
         if st.button("🔍 Search Now", use_container_width=True):
             if p_in and n_in != "Select Nationality" and d_in:
-                with st.spinner("Searching in first portal..."):
+                with st.spinner("Searching..."):
                     res = extract_data(p_in, n_in, d_in.strftime("%d/%m/%Y"))
                     if res:
                         st.session_state['single_search_result'] = res
@@ -287,40 +260,25 @@ with tab1:
                     else:
                         st.session_state['single_search_result'] = None
                         st.error("❌ No data found.")
-            else:
-                st.warning("⚠️ Please fill all fields")
+            else: st.warning("⚠️ Please fill all fields")
     
     if st.session_state.get('single_search_result'):
         result_df = pd.DataFrame([st.session_state['single_search_result']])
-        basic_cols = ["Passport Number", "Nationality", "Date of Birth", "Job Description", 
-                      "Card Number", "Card Issue", "Card Expiry", "Basic Salary", "Total Salary", "Status"]
-        deep_cols = ["Name", "Est Name", "Company Code", "Designation"]
-        
         st.subheader("📋 Basic Information")
-        display_df = result_df[basic_cols].copy()
-        styled_df = display_df.style.map(color_status, subset=['Status'])
-        st.dataframe(styled_df, use_container_width=True)
+        # تم التعديل هنا ليتوافق مع النسخة الجديدة
+        st.dataframe(result_df.style.map(color_status, subset=['Status']), width="stretch")
         
         with col_btn2:
             if st.button("🔎 Deep Search", use_container_width=True):
                 card_num = st.session_state['single_search_result'].get('Card Number')
                 if card_num and card_num not in ['N/A', 'Not Found', '']:
-                    with st.spinner(f"Deep searching for card: {card_num}..."):
+                    with st.spinner(f"Deep searching..."):
                         deep_res = deep_extract_by_card(card_num)
                         if deep_res:
                             st.session_state['single_search_result'].update(deep_res)
-                            st.session_state['single_search_result']['Job Description'] = deep_res.get('Designation', st.session_state['single_search_result']['Job Description'])
                             st.success("✅ Deep search completed!")
                             st.rerun()
-                        else:
-                            st.error("❌ Deep search failed.")
-        
-        if any(st.session_state['single_search_result'].get(col) for col in deep_cols):
-            st.subheader("🔎 Deep Search Results")
-            st.dataframe(result_df[deep_cols], use_container_width=True)
-        
-        csv = pd.DataFrame([st.session_state['single_search_result']]).to_csv(index=False).encode('utf-8')
-        st.download_button(label="📥 Download Result (CSV)", data=csv, file_name=f"result_{p_in}.csv", mime="text/csv")
+                        else: st.error("❌ Deep search failed.")
 
 with tab2:
     st.subheader("Batch Processing Control")
@@ -328,8 +286,8 @@ with tab2:
     
     if uploaded_file:
         df = pd.read_excel(uploaded_file)
-        st.write(f"Total records: {len(df)}")
-        st.dataframe(df, height=150, use_container_width=True)
+        # تم التعديل هنا ليتوافق مع النسخة الجديدة
+        st.dataframe(df, height=150, width="stretch")
 
         col_ctrl1, col_ctrl2, col_ctrl3 = st.columns(3)
         if col_ctrl1.button("▶️ Start / Resume"):
@@ -380,13 +338,14 @@ with tab2:
             progress_bar.progress((i + 1) / len(df))
             elapsed = time.time() - st.session_state.start_time_ref if st.session_state.start_time_ref else 0
             stats_area.markdown(f"✅ **Success:** {actual_success} | ⏱️ **Time:** `{format_time(elapsed)}`")
-            live_table_area.dataframe(pd.DataFrame(st.session_state.batch_results).style.map(color_status, subset=['Status']), use_container_width=True)
+            # تم التعديل هنا ليتوافق مع النسخة الجديدة
+            live_table_area.dataframe(pd.DataFrame(st.session_state.batch_results).style.map(color_status, subset=['Status']), width="stretch")
 
         if st.session_state.run_state == 'running' and len(st.session_state.batch_results) == len(df):
             st.success("✅ Batch Completed!")
-            st.download_button("📥 Download Basic CSV", pd.DataFrame(st.session_state.batch_results).to_csv(index=False).encode('utf-8'), "results.csv", "text/csv")
+            st.download_button("📥 Download Results", pd.DataFrame(st.session_state.batch_results).to_csv(index=False).encode('utf-8'), "results.csv", "text/csv")
             
-            if st.button("🔎 Start Deep Search", key="deep_batch"):
+            if st.button("🔎 Start Deep Search"):
                 st.session_state.deep_run_state = 'running'
                 st.rerun()
 
@@ -398,13 +357,11 @@ with tab2:
                     for count, idx in enumerate(found_recs):
                         card = st.session_state.batch_results[idx].get('Card Number')
                         if card and card not in ['N/A', 'Not Found']:
-                            st.write(f"Deep Searching Card: {card}")
                             d_res = deep_extract_by_card(card)
-                            if d_res:
-                                st.session_state.batch_results[idx].update(d_res)
-                                st.session_state.batch_results[idx]['Job Description'] = d_res.get('Designation', st.session_state.batch_results[idx]['Job Description'])
+                            if d_res: st.session_state.batch_results[idx].update(d_res)
                         dp_bar.progress((count + 1) / len(found_recs))
-                        live_table_area.dataframe(pd.DataFrame(st.session_state.batch_results).style.map(color_status, subset=['Status']), use_container_width=True)
+                        # تم التعديل هنا ليتوافق مع النسخة الجديدة
+                        live_table_area.dataframe(pd.DataFrame(st.session_state.batch_results).style.map(color_status, subset=['Status']), width="stretch")
                 st.success("✅ Deep Search Finished")
-                st.download_button("📥 Download Full CSV", pd.DataFrame(st.session_state.batch_results).to_csv(index=False).encode('utf-8'), "full_results.csv", "text/csv")
+                st.download_button("📥 Full CSV", pd.DataFrame(st.session_state.batch_results).to_csv(index=False).encode('utf-8'), "full_results.csv", "text/csv")
                 st.session_state.deep_run_state = 'stopped'
