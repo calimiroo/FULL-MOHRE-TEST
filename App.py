@@ -339,8 +339,8 @@ with tab1:
             if st.session_state['single_result']['Card Number'] != 'N/A' and st.session_state['single_result']['Card Number'] != 'Not Found':
                 card_num_display = st.session_state['single_result']['Card Number']
 
-                # عرض الجدول الأصلي (تم استبدال use_container_width بـ width)
-                st.dataframe(result_df, width=None) # Streamlit سيجعله stretch افتراضياً الآن أو يمكنك استخدام use_container_width=True مع تجاهل التحذير حتى التحديث القادم
+                # عرض الجدول الأصلي (إعادة use_container_width لتجنب الانهيار)
+                st.dataframe(result_df, use_container_width=True) 
                 
                 # إنشاء زر للبحث العميق
                 if st.button(f"🔍 Deep Search Card {card_num_display}", key=f"deep_search_{card_num_display}"):
@@ -378,7 +378,7 @@ with tab1:
                 # عرض النتيجة المحدثة بعد انتهاء البحث العميق
                 if st.session_state['deep_single_result']:
                     updated_df = pd.DataFrame([st.session_state['single_result']])
-                    st.dataframe(updated_df, width=None)
+                    st.dataframe(updated_df, use_container_width=True)
                     # زر تحميل النتيجة المحدثة
                     csv = updated_df.to_csv(index=False).encode('utf-8')
                     st.download_button(
@@ -389,7 +389,7 @@ with tab1:
                     )
             else:
                 # إذا لم يكن هناك Card Number، عرض النتيجة العادية
-                st.dataframe(result_df, width=None)
+                st.dataframe(result_df, use_container_width=True)
         else:
             st.info("Please enter search criteria and click 'Search Now'.")
     else:
@@ -486,8 +486,8 @@ with tab2:
             stats_area.markdown(f"✅ **Actual Success (Found):** {actual_success} | ⏱️ **Total Time:** `{time_str}`")
             current_df = pd.DataFrame(st.session_state.batch_results)
             styled_df = current_df.style.map(color_status, subset=['Status'])
-            # تم حذف use_container_width للتوافق مع التحديث الجديد
-            live_table_area.dataframe(styled_df)
+            # إعادة use_container_width هنا أيضاً
+            live_table_area.dataframe(styled_df, use_container_width=True)
 
         # عند اكتمال البحث الأولي
         if st.session_state.run_state == 'running' and len(st.session_state.batch_results) == len(df):
@@ -560,7 +560,7 @@ with tab2:
                         # حدث عرض الجدول الأولي مباشرةً
                         current_df = pd.DataFrame(st.session_state.batch_results)
                         styled_df = current_df.style.map(color_status, subset=['Status'])
-                        live_table_area.dataframe(styled_df)
+                        live_table_area.dataframe(styled_df, use_container_width=True)
 
                     if st.session_state.deep_current_index >= len(st.session_state.batch_results):
                         st.success(f"Deep Search Completed: {deep_success}/{deep_total} succeeded")
