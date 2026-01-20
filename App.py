@@ -80,6 +80,8 @@ def get_driver():
     options.add_argument('--headless')
     options.add_argument('--no-sandbox')
     options.add_argument('--disable-dev-shm-usage')
+    # إضافة وسيطة لزيادة حجم الذاكرة المشتركة (قد تساعد في منع الأعطال)
+    options.add_argument('--shm-size=2g')
     return uc.Chrome(options=options, headless=True, use_subprocess=False)
 
 def color_status(val):
@@ -88,184 +90,171 @@ def color_status(val):
 
 # --- استخراج بيانات من الموقع الأول ---
 def extract_data(passport, nationality, dob_str):
-    driver = get_driver()
-    try:
-        driver.get("https://mobile.mohre.gov.ae/Mob_Mol/MolWeb/MyContract.aspx?Service_Code=1005&lang=en" )
-        time.sleep(4)
-        driver.find_element(By.ID, "txtPassportNumber").send_keys(passport)
-        driver.find_element(By.ID, "CtrlNationality_txtDescription").click()
-        time.sleep(1)
+    driver = None # تهيئة المتغير
+    for attempt in range(3): # محاولة 3 مرات
         try:
-            search_box = driver.find_element(By.CSS_SELECTOR, "#ajaxSearchBoxModal .form-control")
-            search_box.send_keys(nationality)
+            driver = get_driver()
+            driver.get("https://mobile.mohre.gov.ae/Mob_Mol/MolWeb/MyContract.aspx?Service_Code=1005&lang=en" )
+            time.sleep(4)
+            driver.find_element(By.ID, "txtPassportNumber").send_keys(passport)
+            driver.find_element(By.ID, "CtrlNationality_txtDescription").click()
             time.sleep(1)
-            items = driver.find_elements(By.CSS_SELECTOR, "#ajaxSearchBoxModal .items li a")
-            if items:
-                items[0].click()
-        except Exception:
-            pass
-
-        dob_input = driver.find_element(By.ID, "txtBirthDate")
-        driver.execute_script("arguments[0].removeAttribute('readonly');", dob_input)
-        dob_input.clear()
-        dob_input.send_keys(dob_str)
-        driver.execute_script("arguments[0].dispatchEvent(new Event('change'));", dob_input)
-        driver.find_element(By.ID, "btnSubmit").click()
-        time.sleep(8)
-
-        def get_value(label):
             try:
-                xpath = f"//span[contains(text(), '{label}')]/following::span[1] | //label[contains(text(), '{label}')]/following-sibling::div"
-                val = driver.find_element(By.XPATH, xpath).text.strip()
-                return val if val else 'Not Found'
-            except:
-                return 'Not Found'
+                search_box = driver.find_element(By.CSS_SELECTOR, "#ajaxSearchBoxModal .form-control")
+                search_box.send_keys(nationality)
+                time.sleep(1)
+                items = driver.find_elements(By.CSS_SELECTOR, "#ajaxSearchBoxModal .items li a")
+                if items:
+                    items[0].click()
+            except Exception:
+                pass
 
-        card_num = get_value("Card Number")
-        if card_num == 'Not Found':
-            return None
+            dob_input = driver.find_element(By.ID, "txtBirthDate")
+            driver.execute_script("arguments[0].removeAttribute('readonly');", dob_input)
+            dob_input.clear()
+            dob_input.send_keys(dob_str)
+            driver.execute_script("arguments[0].dispatchEvent(new Event('change'));", dob_input)
+            driver.find_element(By.ID, "btnSubmit").click()
+            time.sleep(8)
 
-        return {
-            "Passport Number": passport,
-            "Nationality": nationality,
-            "Date of Birth": dob_str,
-            "Job Description": translate_to_english(get_value("Job Description")),
-            "Card Number": card_num,
-            "Card Issue": get_value("Card Issue"),
-            "Card Expiry": get_value("Card Expiry"),
-            "Basic Salary": get_value("Basic Salary"),
-            "Total Salary": get_value("Total Salary"),
-            "Status": "Found"
-        }
-    except Exception as e:
-        logger.error(f"Error in extract_data for passport {passport}: {e}")
-        return None
-    finally:
-        try:
-            driver.quit()
-        except Exception:
-            pass
+            def get_value(label):
+                try:
+                    xpath = f"//span[contains(text(), '{label}')]/following::span[1] | //label[contains(text(), '{label}')]/following-sibling::div"
+                    val = driver.find_element(By.XPATH, xpath).text.strip()
+                    return val if val else 'Not Found'
+                except:
+                    return 'Not Found'
 
+            card_num = get_value("Card Number")
+            if card_num == 'Not Found':
+                return None
+
+            # إذا نجحت العملية، قم بإرجاع النتيجة والخروج من الحلقة
+            return {
+                "Passport Number": passport,
+                "Nationality": nationality,
+                "Date of Birth": dob_str,
+                "Job Description": translate_to_english(get_value("Job Description")),
+                "Card Number": card_num,
+                "Card Issue": get_value("Card Issue"),
+                "Card Expiry": get_value("Card Expiry"),
+                "Basic Salary": get_value("Basic Salary"),
+                "Total Salary": get_value("Total Salary"),
+                "Status": "Found"
+            }
+        except Exception as e:
+            logger.error(f"Attempt {attempt + 1} failed for passport {passport}: {e}")
+            if driver:
+                driver.quit()
+            time.sleep(3) # انتظر قبل المحاولة التالية
+    return None # إذا فشلت كل المحاولات
+    
 # --- وظيفة البحث العميق في الموقع الثاني (inquiry.mohre.gov.ae) ---
 def deep_extract_by_card(card_number):
-    """تحاول الوصول لصفحة Inquiry وتبحث برقم البطاقة وتحصل على Name, Est Name, Company Code, Designation"""
-    driver = get_driver()
-    try:
-        driver.get("https://inquiry.mohre.gov.ae/" )
-        wait = WebDriverWait(driver, 20)
+    """تحاول الوصول لصفحة Inquiry وتبحث برقم البطاقة مع آلية إعادة المحاولة."""
+    driver = None # تهيئة المتغير
+    # --- التعديل: إضافة حلقة إعادة المحاولة ---
+    for attempt in range(3): # سنحاول 3 مرات
+        try:
+            driver = get_driver()
+            driver.get("https://inquiry.mohre.gov.ae/" )
+            wait = WebDriverWait(driver, 20)
 
-        dropdown_btn = wait.until(EC.element_to_be_clickable((By.ID, "dropdownButton")))
-        driver.execute_script("arguments[0].scrollIntoView({block: 'center'});", dropdown_btn)
-        dropdown_btn.click()
-        time.sleep(1)
+            dropdown_btn = wait.until(EC.element_to_be_clickable((By.ID, "dropdownButton")))
+            driver.execute_script("arguments[0].scrollIntoView({block: 'center'});", dropdown_btn)
+            dropdown_btn.click()
+            time.sleep(1)
 
-        wait.until(EC.presence_of_element_located((By.ID, "dropdownList")))
-        ewpi_option = driver.find_element(By.CSS_SELECTOR, "li[value='EWPI']")
-        driver.execute_script("arguments[0].scrollIntoView({block: 'center'});", ewpi_option)
-        driver.execute_script("arguments[0].click();", ewpi_option)
-        time.sleep(1)
+            wait.until(EC.presence_of_element_located((By.ID, "dropdownList")))
+            ewpi_option = driver.find_element(By.CSS_SELECTOR, "li[value='EWPI']")
+            driver.execute_script("arguments[0].scrollIntoView({block: 'center'});", ewpi_option)
+            driver.execute_script("arguments[0].click();", ewpi_option)
+            time.sleep(1)
 
-        card_input = wait.until(EC.presence_of_element_located((By.XPATH, "//input[contains(@placeholder, 'Card') or contains(@placeholder, 'Work Permit')]")))
-        driver.execute_script("arguments[0].scrollIntoView({block: 'center'});", card_input)
-        driver.execute_script("arguments[0].value = '';", card_input)
-        
-        # --- التعديل هنا ---
-        # استخدام الوسائط لتمرير القيمة بأمان بدلاً من f-string
-        driver.execute_script("arguments[0].value = arguments[1];", card_input, card_number)
-        # --- نهاية التعديل ---
-        
-        driver.execute_script("arguments[0].dispatchEvent(new Event('input', {bubbles: true}));", card_input)
-        time.sleep(0.5)
+            card_input = wait.until(EC.presence_of_element_located((By.XPATH, "//input[contains(@placeholder, 'Card') or contains(@placeholder, 'Work Permit')]")))
+            driver.execute_script("arguments[0].scrollIntoView({block: 'center'});", card_input)
+            driver.execute_script("arguments[0].value = '';", card_input)
+            driver.execute_script("arguments[0].value = arguments[1];", card_input, card_number)
+            driver.execute_script("arguments[0].dispatchEvent(new Event('input', {bubbles: true}));", card_input)
+            time.sleep(0.5)
 
-        js_fill_captcha = r"""
-        try {
-            const tryFill = () => {
+            js_fill_captcha = r"""
+            try {
                 const code = Array.from(document.querySelectorAll('div,span,b,strong')).map(el => el.innerText.trim()).find(txt => /^\d{4}$/.test(txt));
                 const input = Array.from(document.querySelectorAll('input')).find(i => i.placeholder.includes("التحقق") || i.placeholder.toLowerCase().includes("captcha"));
                 if (code && input) {
                     input.value = code;
                     input.dispatchEvent(new Event('input', {bubbles: true}));
-                } else {
-                    setTimeout(tryFill, 500);
                 }
-            };
-            tryFill();
-        } catch(e) {
-            console.error('Error filling captcha:', e);
-        }
-        """
-        try:
-            driver.execute_script(js_fill_captcha)
-            time.sleep(1)
-        except Exception as e:
-            logger.warning(f"Error executing captcha script: {e}")
-
-        search_btn = wait.until(EC.element_to_be_clickable((By.ID, "btnSearch")))
-        driver.execute_script("arguments[0].scrollIntoView({block: 'center'});", search_btn)
-        driver.execute_script("arguments[0].click();", search_btn)
-        time.sleep(2)
-
-        result_found = False
-        for _ in range(5):
+            } catch(e) { console.error('Error filling captcha:', e); }
+            """
             try:
-                name_element = driver.find_element(By.XPATH, "//strong[contains(text(), 'Name')] | //label[contains(text(), 'Name')]")
-                if name_element:
-                    result_found = True
-                    break
-            except:
-                pass
-            time.sleep(2)
-
-        if not result_found:
-            logger.warning(f"No results found for card {card_number}.")
-            return None
-
-        def get_value_page(label):
-            try:
-                elements = driver.find_elements(By.XPATH, f"//*[contains(text(), '{label}')]")
-                for el in elements:
-                    try:
-                        next_elem = el.find_element(By.XPATH, "./following::span[1]")
-                        txt = next_elem.text.strip()
-                        if txt: return txt
-                    except:
-                        try:
-                            next_elem = el.find_element(By.XPATH, "./following::div[1]")
-                            txt = next_elem.text.strip()
-                            if txt: return txt
-                        except: continue
-                page_text = driver.find_element(By.TAG_NAME, 'body').text
-                for line in page_text.split('\n'):
-                    if label in line:
-                        parts = line.split(':')
-                        if len(parts) > 1: return parts[1].strip()
-                return 'Not Found'
+                driver.execute_script(js_fill_captcha)
+                time.sleep(1)
             except Exception as e:
-                logger.warning(f"Error getting value for '{label}': {e}")
-                return 'Not Found'
+                logger.warning(f"Error executing captcha script: {e}")
 
-        name = get_value_page('Name')
-        est_name = get_value_page('Est Name')
-        if est_name == 'Not Found': est_name = get_value_page('Est Name:')
-        company_code = get_value_page('Company Code')
-        designation = get_value_page('Designation')
+            search_btn = wait.until(EC.element_to_be_clickable((By.ID, "btnSearch")))
+            driver.execute_script("arguments[0].scrollIntoView({block: 'center'});", search_btn)
+            driver.execute_script("arguments[0].click();", search_btn)
+            time.sleep(3) # زيادة الانتظار بعد النقر
 
-        return {
-            'Name': name if name else 'Not Found',
-            'Est Name': est_name if est_name else 'Not Found',
-            'Company Code': company_code if company_code else 'Not Found',
-            'Designation': designation if designation else 'Not Found'
-        }
-    except Exception as e:
-        logger.error(f"Error in deep_extract_by_card for card {card_number}: {e}")
-        return None
-    finally:
-        try:
-            driver.quit()
-        except Exception:
-            pass
+            result_found = False
+            try:
+                # انتظار أكثر تحديدًا لظهور عنصر النتيجة
+                wait.until(EC.presence_of_element_located((By.XPATH, "//*[contains(text(), 'Name') or contains(text(), 'Est Name')]")))
+                result_found = True
+            except TimeoutException:
+                logger.warning(f"No results found for card {card_number} after waiting.")
+                # قد يكون هناك رسالة خطأ من الموقع
+                try:
+                    error_msg = driver.find_element(By.CSS_SELECTOR, ".error-message, .alert-danger").text
+                    logger.warning(f"Site error message: {error_msg}")
+                except:
+                    pass # لا توجد رسالة خطأ واضحة
+                
+            if not result_found:
+                raise Exception("Result element not found on page.")
 
-# --- واجهة المستخدم ---
+            def get_value_page(label):
+                try:
+                    elements = driver.find_elements(By.XPATH, f"//*[contains(text(), '{label}')]")
+                    for el in elements:
+                        for xpath_rel in ["./following::span[1]", "./following-sibling::div[1]", "./following-sibling::span[1]"]:
+                            try:
+                                next_elem = el.find_element(By.XPATH, xpath_rel)
+                                txt = next_elem.text.strip()
+                                if txt: return txt
+                            except: continue
+                    return 'Not Found'
+                except Exception: return 'Not Found'
+
+            name = get_value_page('Name')
+            est_name = get_value_page('Est Name')
+            company_code = get_value_page('Company Code')
+            designation = get_value_page('Designation')
+
+            # إذا نجحت العملية، قم بإرجاع النتيجة والخروج من الحلقة
+            if driver:
+                driver.quit()
+            return {
+                'Name': name if name else 'Not Found',
+                'Est Name': est_name if est_name else 'Not Found',
+                'Company Code': company_code if company_code else 'Not Found',
+                'Designation': designation if designation else 'Not Found'
+            }
+        except Exception as e:
+            logger.error(f"Attempt {attempt + 1} failed for card {card_number}: {e}")
+            if driver:
+                driver.quit() # تأكد من إغلاق المتصفح المتعطل
+            time.sleep(3) # انتظر 3 ثوانٍ قبل المحاولة التالية
+    
+    # --- نهاية التعديل ---
+    logger.error(f"All attempts failed for card {card_number}.")
+    return None # إذا فشلت كل المحاولات
+
+# --- واجهة المستخدم (بدون تغيير) ---
+# (الكود المتبقي يبقى كما هو)
 tab1, tab2 = st.tabs(["Single Search", "Upload Excel File"])
 
 with tab1:
@@ -295,7 +284,7 @@ with tab1:
             result_df = pd.DataFrame([st.session_state['single_result']])
             if st.session_state['single_result']['Card Number'] not in ['N/A', 'Not Found']:
                 card_num_display = st.session_state['single_result']['Card Number']
-                st.dataframe(result_df, width='stretch' if 'use_container_width' not in pd.__version__ else None, use_container_width=True if 'use_container_width' in pd.__version__ else None)
+                st.dataframe(result_df, use_container_width=True)
                 
                 if st.button(f"🔍 Deep Search Card {card_num_display}", key=f"deep_search_{card_num_display}"):
                     st.session_state['deep_single_running'] = True
@@ -328,11 +317,11 @@ with tab1:
 
                 if st.session_state['deep_single_result']:
                     updated_df = pd.DataFrame([st.session_state['single_result']])
-                    st.dataframe(updated_df, width='stretch' if 'use_container_width' not in pd.__version__ else None, use_container_width=True if 'use_container_width' in pd.__version__ else None)
+                    st.dataframe(updated_df, use_container_width=True)
                     csv = updated_df.to_csv(index=False).encode('utf-8')
                     st.download_button("Download Single Result (CSV)", csv, f"single_result_{st.session_state['single_result']['Card Number']}.csv", 'text/csv')
             else:
-                st.dataframe(result_df, width='stretch' if 'use_container_width' not in pd.__version__ else None, use_container_width=True if 'use_container_width' in pd.__version__ else None)
+                st.dataframe(result_df, use_container_width=True)
         else:
             st.info("Please enter search criteria and click 'Search Now'.")
 
@@ -381,7 +370,7 @@ with tab2:
             progress_bar.progress((i + 1) / len(df))
             stats_area.markdown(f"✅ **Actual Success (Found):** {actual_success} | ⏱️ **Total Time:** `{format_time(elapsed_seconds)}`")
             current_df = pd.DataFrame(st.session_state.batch_results)
-            live_table_area.dataframe(current_df.style.map(color_status, subset=['Status']), width='stretch' if 'use_container_width' not in pd.__version__ else None, use_container_width=True if 'use_container_width' in pd.__version__ else None)
+            live_table_area.dataframe(current_df.style.map(color_status, subset=['Status']), use_container_width=True)
 
         if st.session_state.run_state == 'running' and len(st.session_state.batch_results) == len(df):
             st.success(f"Batch Initial Search Completed! Total Time: {format_time(time.time() - st.session_state.start_time_ref)}")
@@ -431,10 +420,11 @@ with tab2:
                         deep_progress_bar.progress(min(1.0, st.session_state.deep_progress))
                         
                         current_df = pd.DataFrame(st.session_state.batch_results)
-                        live_table_area.dataframe(current_df.style.map(color_status, subset=['Status']), width='stretch' if 'use_container_width' not in pd.__version__ else None, use_container_width=True if 'use_container_width' in pd.__version__ else None)
+                        live_table_area.dataframe(current_df.style.map(color_status, subset=['Status']), use_container_width=True)
 
                     if st.session_state.deep_current_index >= len(st.session_state.batch_results):
                         st.success(f"Deep Search Completed: {deep_success}/{deep_total} succeeded")
                         st.session_state.update(deep_run_state='stopped', deep_search_started=False)
                         final_df = pd.DataFrame(st.session_state.batch_results)
                         st.download_button("Download Final Full Report (CSV)", final_df.to_csv(index=False).encode('utf-8'), "full_results_with_deep.csv", 'text/csv')
+
