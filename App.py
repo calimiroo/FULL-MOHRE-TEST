@@ -9,6 +9,7 @@ from selenium.common.exceptions import TimeoutException, NoSuchElementException
 from datetime import datetime, timedelta 
 from deep_translator import GoogleTranslator
 import json # مطلوب لـ postMessage
+import base64 # مطلوب لتشفير البيانات للتحميل
 
 # --- إعداد الصفحة --- 
 st.set_page_config(page_title="MOHRE Portal", layout="wide") 
@@ -38,6 +39,10 @@ if 'deep_single_result' not in st.session_state:
     st.session_state['deep_single_result'] = {}
 if 'deep_current_index' not in st.session_state:
     st.session_state['deep_current_index'] = 0
+if 'single_search_executed' not in st.session_state:
+    st.session_state['single_search_executed'] = False
+if 'deep_search_started' not in st.session_state:
+    st.session_state['deep_search_started'] = False
 
 # قائمة الجنسيات (محفوظة كما هي)
 countries_list = ["Select Nationality", "Afghanistan", "Albania", "Algeria", "Andorra", "Angola", "Antigua and Barbuda", "Argentina", "Armenia", "Australia", "Austria", "Azerbaijan", "Bahamas", "Bahrain", "Bangladesh", "Barbados", "Belarus", "Belgium", "Belize", "Benin", "Bhutan", "Bolivia", "Bosnia and Herzegovina", "Botswana", "Brazil", "Brunei", "Bulgaria", "Burkina Faso", "Burundi", "Cabo Verde", "Cambodia", "Cameroon", "Canada", "Central African Republic", "Chad", "Chile", "China", "Colombia", "Comoros", "Congo (Congo-Brazzaville)", "Costa Rica", "Côte d'Ivoire", "Croatia", "Cuba", "Cyprus", "Czechia (Czech Republic)", "Democratic Republic of the Congo", "Denmark", "Djibouti", "Dominica", "Dominican Republic", "Ecuador", "Egypt", "El Salvador", "Equatorial Guinea", "Eritrea", "Estonia", "Eswatini", "Ethiopia", "Fiji", "Finland", "France", "Gabon", "Gambia", "Georgia", "Germany", "Ghana", "Greece", "Grenada", "Guatemala", "Guinea", "Guinea-Bissau", "Guyana", "Haiti", "Holy See", "Honduras", "Hungary", "Iceland", "India", "Indonesia", "Iran", "Iraq", "Ireland", "Israel", "Italy", "Jamaica", "Japan", "Jordan", "Kazakhstan", "Kenya", "Kiribati", "Kuwait", "Kyrgyzstan", "Laos", "Latvia", "Lebanon", "Lesotho", "Liberia", "Libya", "Liechtenstein", "Lithuania", "Luxembourg", "Madagascar", "Malawi", "Malaysia", "Maldives", "Mali", "Malta", "Marshall Islands", "Mauritania", "Mauritius", "Mexico", "Micronesia", "Moldova", "Monaco", "Mongolia", "Montenegro", "Morocco", "Mozambique", "Myanmar", "Namibia", "Nauru", "Nepal", "Netherlands", "New Zealand", "Nicaragua", "Niger", "Nigeria", "North Korea", "North Macedonia", "Norway", "Oman", "Pakistan", "Palau", "Palestine State", "Panama", "Papua New Guinea", "Paraguay", "Peru", "Philippines", "Poland", "Portugal", "Qatar", "Romania", "Russia", "Rwanda", "Saint Kitts and Nevis", "Saint Lucia", "Saint Vincent and the Grenadines", "Samoa", "San Marino", "Sao Tome and Principe", "Saudi Arabia", "Senegal", "Serbia", "Seychelles", "Sierra Leone", "Singapore", "Slovakia", "Slovenia", "Solomon Islands", "Somalia", "South Africa", "South Korea", "South Sudan", "Spain", "Sri Lanka", "Sudan", "Suriname", "Sweden", "Switzerland", "Syria", "Tajikistan", "Tanzania", "Thailand", "Timor-Leste", "Togo", "Tonga", "Trinidad and Tobago", "Tunisia", "Turkey", "Turkmenistan", "Tuvalu", "Uganda", "Ukraine", "United Arab Emirates", "United Kingdom", "United States of America", "Uruguay", "Uzbekistan", "Vanuatu", "Venezuela", "Vietnam", "Yemen", "Zambia", "Zimbabwe"] 
@@ -269,97 +274,88 @@ with tab1:
                     st.session_state['deep_single_running'] = False
                     st.session_state['deep_single_card'] = None
                     st.session_state['deep_single_result'] = {}
+                    st.session_state['single_search_executed'] = True
                 else:
                     st.error("No data found.")
                     st.session_state['single_result'] = None
+                    st.session_state['single_search_executed'] = True
 
     # عرض نتيجة البحث الفردي
-    if st.session_state['single_result']:
-        result_df = pd.DataFrame([st.session_state['single_result']])
-        
-        # إذا كانت النتيجة تحتوي على Card Number، عرضها كجدول قابل للتحديث
-        if st.session_state['single_result']['Card Number'] != 'N/A':
-            # إنشاء رابط وهمي لرقم البطاقة
-            card_num_display = st.session_state['single_result']['Card Number']
-            # استخدم HTML لعرض الرابط
-            card_link_html = f'<a href="#" id="card_link_{card_num_display}" style="color: blue; text-decoration: underline;">{card_num_display}</a>'
-            display_df = result_df.copy()
-            display_df.loc[0, 'Card Number'] = card_link_html
-            
-            # عرض الجدول مع الرابط
-            st.dataframe(display_df, unsafe_allow_html=True, use_container_width=True)
-            
-            # إضافة HTML وJavaScript للتعامل مع النقر على الرابط
-            js_code = f"""
-            <script>
-            document.addEventListener('DOMContentLoaded', function() {{
-                var link = document.getElementById('card_link_{card_num_display}');
-                if(link) {{
-                    link.onclick = function(e) {{
-                        e.preventDefault(); // منع الانتقال إلى رابط فارغ
-                        window.parent.postMessage({{
-                            type: 'deep_search_single',
-                            card_number: '{card_num_display}'
-                        }}, '*');
-                        return false;
-                    }};
-                }}
-            }});
-            </script>
-            """
-            st.components.v1.html(js_code, height=0)
-            
-            # التحقق من النقر على الرابط (من خلال postMessage)
-            query_params = st.experimental_get_query_params()
-            if 'trigger_deep_search' in query_params:
-                 card_clicked = query_params['trigger_deep_search'][0]
-                 if card_clicked == card_num_display and not st.session_state['deep_single_running']:
-                     st.session_state['deep_single_running'] = True
-                     st.session_state['deep_single_card'] = card_clicked
-                     st.experimental_set_query_params() # مسح الرابط من عنوان URL
-                     st.rerun()
-            
-            # التحقق من النقر من خلال postMessage
-            if st.session_state['deep_single_running'] and not st.session_state['deep_single_result']:
-                 card_to_search = st.session_state['single_result']['Card Number']
-                 if card_to_search == st.session_state['deep_single_card']:
-                     with st.spinner(f"Deep searching card {card_to_search}..."):
-                         deep_res = deep_extract_by_card(card_to_search)
-                         if deep_res:
-                             st.session_state['deep_single_result'] = deep_res
-                             # تحديث نتيجة البحث الفردي
-                             updated_res = st.session_state['single_result'].copy()
-                             updated_res['Job Description'] = deep_res.get('Designation', 'Not Found')
-                             updated_res['Name'] = deep_res.get('Name', 'Not Found')
-                             updated_res['Est Name'] = deep_res.get('Est Name', 'Not Found')
-                             updated_res['Company Code'] = deep_res.get('Company Code', 'Not Found')
-                             st.session_state['single_result'] = updated_res
-                             st.success(f"Deep search completed for card {card_to_search}.")
-                         else:
-                             st.error(f"Deep search failed for card {card_to_search}.")
-                             # إضافة الحقول الفارغة
-                             updated_res = st.session_state['single_result'].copy()
-                             updated_res['Name'] = 'Not Found'
-                             updated_res['Est Name'] = 'Not Found'
-                             updated_res['Company Code'] = 'Not Found'
-                             st.session_state['single_result'] = updated_res
-                         st.session_state['deep_single_running'] = False
-                         st.rerun()
-            
-            # عرض النتيجة المحدثة بعد انتهاء البحث العميق
-            if st.session_state['deep_single_result']:
-                updated_df = pd.DataFrame([st.session_state['single_result']])
-                st.dataframe(updated_df, use_container_width=True)
-                # زر تحميل النتيجة المحدثة
-                st.download_button(
-                    label="Download Single Result (CSV)",
-                    data=updated_df.to_csv(index=False).encode('utf-8'),
-                    file_name=f"single_result_{st.session_state['single_result']['Card Number']}.csv",
-                    mime='text/csv'
-                )
+    if st.session_state['single_search_executed']:
+        if st.session_state['single_result']:
+            result_df = pd.DataFrame([st.session_state['single_result']])
+
+            # إذا كانت النتيجة تحتوي على Card Number، عرضها كجدول مع رابط للبحث العميق
+            if st.session_state['single_result']['Card Number'] != 'N/A' and st.session_state['single_result']['Card Number'] != 'Not Found':
+                card_num_display = st.session_state['single_result']['Card Number']
+
+                # إنشاء HTML للرابط
+                card_link_html = f'<a href="#" onclick="event.preventDefault(); window.parent.postMessage({{type: \'deep_search_single\', card_number: \'{card_num_display}\'}}, \'*\');">{card_num_display}</a>'
+                
+                # عرض الجدول الأصلي
+                st.dataframe(result_df, use_container_width=True)
+                
+                # عرض الرابط كنص منفصل
+                st.write(f"Click on the Card Number below to perform a deep search:")
+                st.components.v1.html(f"<p>{card_link_html}</p>", height=30)
+
+                # التحقق من النقر على الرابط (من خلال postMessage)
+                # نستخدم قاعدة بيانات جلسة مبسطة للتحقق
+                if 'clicked_card' in st.query_params:
+                    clicked_card = st.query_params['clicked_card']
+                    if clicked_card == card_num_display and not st.session_state['deep_single_running']:
+                        st.session_state['deep_single_running'] = True
+                        st.session_state['deep_single_card'] = clicked_card
+                        st.query_params.clear() # مسح الرابط من عنوان URL
+                        st.rerun()
+                
+                # التحقق من النقر من خلال postMessage
+                if st.session_state['deep_single_running'] and not st.session_state['deep_single_result']:
+                    card_to_search = st.session_state['single_result']['Card Number']
+                    if card_to_search == st.session_state['deep_single_card']:
+                        with st.spinner(f"Deep searching card {card_to_search}..."):
+                            deep_res = deep_extract_by_card(card_to_search)
+                            if deep_res:
+                                st.session_state['deep_single_result'] = deep_res
+                                # تحديث نتيجة البحث الفردي
+                                updated_res = st.session_state['single_result'].copy()
+                                updated_res['Job Description'] = deep_res.get('Designation', 'Not Found')
+                                updated_res['Name'] = deep_res.get('Name', 'Not Found')
+                                updated_res['Est Name'] = deep_res.get('Est Name', 'Not Found')
+                                updated_res['Company Code'] = deep_res.get('Company Code', 'Not Found')
+                                st.session_state['single_result'] = updated_res
+                                st.success(f"Deep search completed for card {card_to_search}.")
+                            else:
+                                st.error(f"Deep search failed for card {card_to_search}.")
+                                # إضافة الحقول الفارغة
+                                updated_res = st.session_state['single_result'].copy()
+                                updated_res['Name'] = 'Not Found'
+                                updated_res['Est Name'] = 'Not Found'
+                                updated_res['Company Code'] = 'Not Found'
+                                st.session_state['single_result'] = updated_res
+                            st.session_state['deep_single_running'] = False
+                            st.rerun()
+                
+                # عرض النتيجة المحدثة بعد انتهاء البحث العميق
+                if st.session_state['deep_single_result']:
+                    updated_df = pd.DataFrame([st.session_state['single_result']])
+                    st.dataframe(updated_df, use_container_width=True)
+                    # زر تحميل النتيجة المحدثة
+                    csv = updated_df.to_csv(index=False).encode('utf-8')
+                    st.download_button(
+                        label="Download Single Result (CSV)",
+                        data=csv,
+                        file_name=f"single_result_{st.session_state['single_result']['Card Number']}.csv",
+                        mime='text/csv'
+                    )
+            else:
+                # إذا لم يكن هناك Card Number، عرض النتيجة العادية
+                st.dataframe(result_df, use_container_width=True)
         else:
-            # إذا لم يكن هناك Card Number، عرض النتيجة العادية
-            st.dataframe(result_df, use_container_width=True)
+            st.info("Please enter search criteria and click 'Search Now'.")
+    else:
+        st.info("Please enter search criteria and click 'Search Now'.")
+
 
 with tab2:
     st.subheader("Batch Processing Control")
@@ -384,6 +380,7 @@ with tab2:
             st.session_state.deep_run_state = 'stopped'
             st.session_state.deep_progress = 0
             st.session_state.deep_current_index = 0
+            st.session_state.deep_search_started = False
             st.rerun()
 
         # مساحات العرض الحية
@@ -454,17 +451,19 @@ with tab2:
                 if col not in final_df_initial.columns:
                     final_df_initial[col] = 'N/A'
             # زر تحميل أولي
+            csv_initial = final_df_initial.to_csv(index=False).encode('utf-8')
             st.download_button(
                 "Download Initial Batch Results (CSV)",
-                final_df_initial.to_csv(index=False).encode('utf-8'),
+                csv_initial,
                 "initial_batch_results.csv",
                 mime='text/csv'
             )
 
             # زر البحث العميق
-            if st.button("Deep Search (Search cards on inquiry.mohre.gov.ae)") and st.session_state.deep_run_state != 'running':
+            if st.button("Deep Search (Search cards on inquiry.mohre.gov.ae)") and not st.session_state['deep_search_started']:
                 st.session_state.deep_run_state = 'running'
                 st.session_state.deep_current_index = 0
+                st.session_state.deep_search_started = True
 
             # تنفيذ البحث العميق إذا بدأ
             if st.session_state.deep_run_state == 'running':
@@ -472,6 +471,7 @@ with tab2:
                 if deep_total == 0:
                     st.info("No 'Found' records with valid Card Number to Deep Search.")
                     st.session_state.deep_run_state = 'stopped'
+                    st.session_state.deep_search_started = False
                 else:
                     deep_idx = 0
                     deep_success = 0
@@ -522,12 +522,14 @@ with tab2:
                     if st.session_state.deep_current_index >= len(st.session_state.batch_results):
                         st.success(f"Deep Search Completed: {deep_success}/{deep_total} succeeded")
                         st.session_state.deep_run_state = 'stopped'
+                        st.session_state.deep_search_started = False
                         
                         # زر تحميل الملف النهائي بعد الـ Deep Search
                         final_df = pd.DataFrame(st.session_state.batch_results)
+                        csv_final = final_df.to_csv(index=False).encode('utf-8')
                         st.download_button(
                             "Download Final Full Report (CSV)",
-                            final_df.to_csv(index=False).encode('utf-8'),
+                            csv_final,
                             "full_results_with_deep.csv",
                             mime='text/csv'
                         )
