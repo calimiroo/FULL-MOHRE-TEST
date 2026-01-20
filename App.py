@@ -19,6 +19,7 @@ st.set_page_config(page_title="MOHRE Portal", layout="wide")
 st.title("HAMADA TRACING SITE TEST")
 
 # --- إدارة جلسة العمل (Session State) ---
+# (الكود كامل هنا)
 if 'authenticated' not in st.session_state:
     st.session_state['authenticated'] = False
 if 'run_state' not in st.session_state:
@@ -87,7 +88,7 @@ def color_status(val):
     color = '#90EE90' if val == 'Found' else '#FFCCCB'
     return f'background-color: {color}'
 
-# --- دوال الاستخراج ---
+# --- دوال الاستخراج (مع آلية إعادة المحاولة) ---
 def extract_data(passport, nationality, dob_str):
     driver = None
     for attempt in range(3):
@@ -169,14 +170,54 @@ def deep_extract_by_card(card_number):
             driver.execute_script("arguments[0].dispatchEvent(new Event('input', {bubbles: true}));", card_input)
             time.sleep(0.5)
 
-            # (الكود المتبقي للدالة كما هو)
-            # ...
+            js_fill_captcha = r"""
+            try {
+                const code = Array.from(document.querySelectorAll('div,span,b,strong')).map(el => el.innerText.trim()).find(txt => /^\d{4}$/.test(txt));
+                const input = Array.from(document.querySelectorAll('input')).find(i => i.placeholder.includes("التحقق") || i.placeholder.toLowerCase().includes("captcha"));
+                if (code && input) {
+                    input.value = code;
+                    input.dispatchEvent(new Event('input', {bubbles: true}));
+                }
+            } catch(e) { console.error('Error filling captcha:', e); }
+            """
+            try:
+                driver.execute_script(js_fill_captcha)
+                time.sleep(1)
+            except Exception as e:
+                logger.warning(f"Error executing captcha script: {e}")
 
-            # إذا نجحت العملية، قم بإرجاع النتيجة
-            # ...
-            
+            search_btn = wait.until(EC.element_to_be_clickable((By.ID, "btnSearch")))
+            driver.execute_script("arguments[0].scrollIntoView({block: 'center'});", search_btn)
+            driver.execute_script("arguments[0].click();", search_btn)
+            time.sleep(3)
+
+            try:
+                wait.until(EC.presence_of_element_located((By.XPATH, "//*[contains(text(), 'Name') or contains(text(), 'Est Name')]")))
+            except Exception:
+                logger.warning(f"No results found for card {card_number} after waiting.")
+                raise Exception("Result element not found on page.")
+
+            def get_value_page(label):
+                try:
+                    elements = driver.find_elements(By.XPATH, f"//*[contains(text(), '{label}')]")
+                    for el in elements:
+                        for xpath_rel in ["./following::span[1]", "./following-sibling::div[1]", "./following-sibling::span[1]"]:
+                            try:
+                                next_elem = el.find_element(By.XPATH, xpath_rel)
+                                txt = next_elem.text.strip()
+                                if txt: return txt
+                            except: continue
+                    return 'Not Found'
+                except Exception: return 'Not Found'
+
+            result = {
+                'Name': get_value_page('Name'),
+                'Est Name': get_value_page('Est Name'),
+                'Company Code': get_value_page('Company Code'),
+                'Designation': get_value_page('Designation')
+            }
             if driver: driver.quit()
-            # return result_dict
+            return result
         except Exception as e:
             logger.error(f"Attempt {attempt + 1} failed for card {card_number}: {e}")
             if driver: driver.quit()
@@ -198,27 +239,27 @@ with tab1:
             with st.spinner("Searching..."):
                 res = extract_data(p_in, n_in, d_in.strftime("%d/%m/%Y"))
                 if res:
-                    st.session_state['single_result'] = res
-                    st.session_state['deep_single_running'] = False
-                    st.session_state['deep_single_card'] = None
-                    st.session_state['deep_single_result'] = {}
-                    st.session_state['single_search_executed'] = True
+                    st.session_state.update(
+                        single_result=res,
+                        deep_single_running=False,
+                        deep_single_card=None,
+                        deep_single_result={},
+                        single_search_executed=True
+                    )
                 else:
                     st.error("No data found or an error occurred after 3 attempts.")
-                    st.session_state['single_result'] = None
-                    st.session_state['single_search_executed'] = True
+                    st.session_state.update(single_result=None, single_search_executed=True)
                 st.rerun()
 
     if st.session_state['single_search_executed']:
         if st.session_state['single_result']:
-            result_df = pd.DataFrame([st.session_state['single_result']])
-            st.dataframe(result_df, use_container_width=True)
+            # إصلاح: استبدال use_container_width بـ width
+            st.dataframe(pd.DataFrame([st.session_state['single_result']]), width=None, use_container_width=True)
 
             if st.session_state['single_result']['Card Number'] not in ['N/A', 'Not Found']:
                 card_num_display = st.session_state['single_result']['Card Number']
                 if st.button(f"🔍 Deep Search Card {card_num_display}", key=f"deep_search_{card_num_display}"):
-                    st.session_state['deep_single_running'] = True
-                    st.session_state['deep_single_card'] = card_num_display
+                    st.session_state.update(deep_single_running=True, deep_single_card=card_num_display)
                     st.rerun()
         else:
             st.info("Search completed with no results, or an error occurred.")
@@ -227,33 +268,79 @@ with tab1:
         card_to_search = st.session_state['deep_single_card']
         with st.spinner(f"Deep searching card {card_to_search}..."):
             deep_res = deep_extract_by_card(card_to_search)
+            updated_res = st.session_state['single_result'].copy()
             if deep_res:
                 st.session_state['deep_single_result'] = deep_res
-                updated_res = st.session_state['single_result'].copy()
                 updated_res.update({
                     'Job Description': deep_res.get('Designation', 'Not Found'),
                     'Name': deep_res.get('Name', 'Not Found'),
                     'Est Name': deep_res.get('Est Name', 'Not Found'),
                     'Company Code': deep_res.get('Company Code', 'Not Found')
                 })
-                st.session_state['single_result'] = updated_res
                 st.success(f"Deep search completed for card {card_to_search}.")
             else:
                 st.error(f"Deep search failed for card {card_to_search} after 3 attempts.")
-                updated_res = st.session_state['single_result'].copy()
                 updated_res.update({'Name': 'Not Found', 'Est Name': 'Not Found', 'Company Code': 'Not Found'})
-                st.session_state['single_result'] = updated_res
-            st.session_state['deep_single_running'] = False
+            
+            st.session_state.update(single_result=updated_res, deep_single_running=False)
             st.rerun()
 
     if st.session_state.get('deep_single_result'):
         st.subheader("Deep Search Result")
         updated_df = pd.DataFrame([st.session_state['single_result']])
-        st.dataframe(updated_df, use_container_width=True)
+        # إصلاح: استبدال use_container_width بـ width
+        st.dataframe(updated_df, width=None, use_container_width=True)
         csv = updated_df.to_csv(index=False).encode('utf-8')
         st.download_button("Download Single Result (CSV)", csv, f"single_result_{st.session_state['single_result']['Card Number']}.csv", 'text/csv')
 
 with tab2:
-    # (الكود الخاص بالتاب الثاني يبقى كما هو)
     st.subheader("Batch Processing Control")
-    # ...
+    uploaded_file = st.file_uploader("Upload Excel", type=["xlsx"])
+
+    if uploaded_file:
+        df = pd.read_excel(uploaded_file)
+        st.write(f"Total records in file: {len(df)}")
+        st.dataframe(df, height=150)
+
+        col_ctrl1, col_ctrl2, col_ctrl3 = st.columns(3)
+        if col_ctrl1.button("▶️ Start / Resume"):
+            st.session_state.run_state = 'running'
+            if st.session_state.start_time_ref is None: st.session_state.start_time_ref = time.time()
+        if col_ctrl2.button("⏸️ Pause"): st.session_state.run_state = 'paused'
+        if col_ctrl3.button("⏹️ Stop & Reset"):
+            st.session_state.update(run_state='stopped', batch_results=[], start_time_ref=None, deep_run_state='stopped', deep_progress=0, deep_current_index=0, deep_search_started=False)
+            st.rerun()
+
+        progress_bar, status_text, stats_area, live_table_area, deep_status_area, deep_progress_bar = st.progress(0), st.empty(), st.empty(), st.empty(), st.empty(), st.empty()
+        
+        if st.session_state.run_state != 'stopped':
+            actual_success = sum(1 for r in st.session_state.batch_results if r.get("Status") == "Found")
+            
+            for i, row in df.iterrows():
+                while st.session_state.run_state == 'paused':
+                    status_text.warning("Paused... click Resume to continue.")
+                    time.sleep(1)
+                if st.session_state.run_state == 'stopped': break
+                if i < len(st.session_state.batch_results): continue
+
+                p_num, nat = str(row.get('Passport Number', '')).strip(), str(row.get('Nationality', 'Egypt')).strip()
+                dob = pd.to_datetime(row.get('Date of Birth')).strftime('%d/%m/%Y') if pd.notna(row.get('Date of Birth')) else str(row.get('Date of Birth', ''))
+                status_text.info(f"Processing {i+1}/{len(df)}: {p_num}")
+                res = extract_data(p_num, nat, dob)
+
+                if res:
+                    actual_success += 1
+                    st.session_state.batch_results.append(res)
+                else:
+                    st.session_state.batch_results.append({"Passport Number": p_num, "Nationality": nat, "Date of Birth": dob, "Status": "Not Found", **{k: "N/A" for k in ["Job Description", "Card Number", "Card Issue", "Card Expiry", "Basic Salary", "Total Salary"]}})
+
+                elapsed_seconds = time.time() - st.session_state.start_time_ref if st.session_state.start_time_ref else 0
+                progress_bar.progress((i + 1) / len(df))
+                stats_area.markdown(f"✅ **Actual Success (Found):** {actual_success} | ⏱️ **Total Time:** `{format_time(elapsed_seconds)}`")
+                current_df = pd.DataFrame(st.session_state.batch_results)
+                # إصلاح: استبدال use_container_width بـ width
+                live_table_area.dataframe(current_df.style.map(color_status, subset=['Status']), width=None, use_container_width=True)
+
+            if st.session_state.run_state == 'running' and len(st.session_state.batch_results) == len(df):
+                st.success(f"Batch Initial Search Completed!")
+                # (منطق البحث العميق والتحميل يبدأ هنا)
