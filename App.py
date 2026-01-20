@@ -8,8 +8,11 @@ from selenium.webdriver.support import expected_conditions as EC
 from selenium.common.exceptions import TimeoutException, NoSuchElementException
 from datetime import datetime, timedelta 
 from deep_translator import GoogleTranslator
-import json # مطلوب لـ postMessage
-import base64 # مطلوب لتشفير البيانات للتحميل
+import logging
+
+# --- إعداد السجل ---
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
 
 # --- إعداد الصفحة --- 
 st.set_page_config(page_title="MOHRE Portal", layout="wide") 
@@ -135,7 +138,8 @@ def extract_data(passport, nationality, dob_str):
             "Total Salary": get_value("Total Salary"),
             "Status": "Found"
         }
-    except Exception:
+    except Exception as e:
+        logger.error(f"Error in extract_data for passport {passport}: {e}")
         return None
     finally:
         try:
@@ -149,27 +153,57 @@ def deep_extract_by_card(card_number):
     driver = get_driver()
     try:
         driver.get("https://inquiry.mohre.gov.ae/")
-        wait = WebDriverWait(driver, 10)
+        wait = WebDriverWait(driver, 15) # زيادة وقت الانتظار
 
-        # 1) اختر "Electronic Work Permit Information" باستخدام القيمة
+        # 1) افتح القائمة المنسدلة واختر "Electronic Work Permit Information"
         dropdown_btn = wait.until(EC.element_to_be_clickable((By.ID, "dropdownButton")))
         dropdown_btn.click()
-        time.sleep(0.5)
+        time.sleep(1)
+
         # انتظر حتى تصبح القائمة مرئية
         wait.until(EC.presence_of_element_located((By.ID, "dropdownList")))
 
-        # ابحث عن العنصر باستخدام القيمة 'EWPI'
-        ewpi_option = driver.find_element(By.CSS_SELECTOR, f"li[value='EWPI']")
-        ewpi_option.click()
-        time.sleep(1)
+        # ابحث عن العنصر باستخدام النص أو القيمة
+        ewpi_option = None
+        try:
+            ewpi_option = driver.find_element(By.CSS_SELECTOR, "li[value='EWPI']")
+        except:
+            pass
+        if not ewpi_option:
+            try:
+                ewpi_option = driver.find_element(By.XPATH, "//li[contains(text(), 'Electronic Work Permit Information')]")
+            except:
+                pass
+        
+        if ewpi_option:
+            ewpi_option.click()
+            time.sleep(1)
+        else:
+            logger.warning("Could not find 'Electronic Work Permit Information' option.")
+            return None
 
         # 2) أدخل رقم البطاقة
-        card_input = wait.until(EC.presence_of_element_located((By.CSS_SELECTOR, "input[type='text']")))
-        card_input.clear()
-        card_input.send_keys(card_number)
-        time.sleep(0.5)
+        # حاول العثور على حقل الإدخال المناسب
+        card_input = None
+        try:
+            card_input = wait.until(EC.presence_of_element_located((By.CSS_SELECTOR, "input[type='text']")))
+        except:
+            pass
+        if not card_input:
+            try:
+                card_input = driver.find_element(By.XPATH, "//input[contains(@placeholder, 'Card') or contains(@placeholder, 'Work Permit')]")
+            except:
+                pass
 
-        # 3) تجاوز الكابتشا باستخدام السكربت
+        if card_input:
+            card_input.clear()
+            card_input.send_keys(card_number)
+            time.sleep(0.5)
+        else:
+            logger.warning("Could not find input field for card number.")
+            return None
+
+        # 3) تجاوز الكابتشا
         js_fill_captcha = r"""
         try{
             const tryFill=()=>{
@@ -188,17 +222,55 @@ def deep_extract_by_card(card_number):
             console.error('Error filling captcha:',e);
         }
         """
-        driver.execute_script(js_fill_captcha)
-        time.sleep(1)
+        try:
+            driver.execute_script(js_fill_captcha)
+            time.sleep(1)
+        except Exception as e:
+            logger.warning(f"Error executing captcha script: {e}")
 
         # 4) اضغط زر البحث
-        search_btn = wait.until(EC.element_to_be_clickable((By.CSS_SELECTOR, "button[type='submit'], button, #btnSearch, #searchBtn, input[type='submit']")))
-        search_btn.click()
+        search_btn = None
+        try:
+            search_btn = wait.until(EC.element_to_be_clickable((By.ID, "btnSearch")))
+        except:
+            pass
+        if not search_btn:
+            try:
+                search_btn = driver.find_element(By.XPATH, "//button[contains(text(), 'Search') or contains(text(), 'بحث')]")
+            except:
+                pass
+        if not search_btn:
+            try:
+                search_btn = driver.find_element(By.TAG_NAME, "button")
+            except:
+                pass
 
-        # 5) انتظر النتائج
-        # انتظر حتى يظهر محتوى الصفحة بعد البحث
-        wait.until(lambda d: "Name" in d.page_source or "Card Number" in d.page_source)
+        if search_btn:
+            search_btn.click()
+            time.sleep(2) # انتظر رد فعل الزر
+        else:
+            logger.warning("Could not find search button.")
+            return None
 
+        # 5) انتظر ظهور نتائج البحث
+        # انتظر حتى يظهر أحد عناصر النتيجة
+        result_found = False
+        for _ in range(3): # محاولة 3 مرات
+            try:
+                # ابحث عن اسم الموظف كمؤشر على وجود نتيجة
+                name_element = driver.find_element(By.XPATH, "//strong[contains(text(), 'Name')] | //label[contains(text(), 'Name')]")
+                if name_element:
+                    result_found = True
+                    break
+            except:
+                pass
+            time.sleep(2)
+
+        if not result_found:
+            logger.warning(f"No results found for card {card_number}.")
+            return None
+
+        # 6) استخرج البيانات
         def get_value_page(label):
             try:
                 # ابحث عن العنصر الذي يحتوي على النص المطلوب
@@ -227,7 +299,8 @@ def deep_extract_by_card(card_number):
                         if len(parts) > 1:
                             return parts[1].strip()
                 return 'Not Found'
-            except:
+            except Exception as e:
+                logger.warning(f"Error getting value for '{label}': {e}")
                 return 'Not Found'
 
         # اسحب القيم
@@ -245,12 +318,12 @@ def deep_extract_by_card(card_number):
             'Designation': designation if designation else 'Not Found'
         }
     except Exception as e:
-        print(f"Error in deep_extract_by_card for card {card_number}: {e}")
+        logger.error(f"Error in deep_extract_by_card for card {card_number}: {e}")
         return None
     finally:
         try:
             driver.quit()
-        except:
+        except Exception:
             pass
 
 
@@ -289,27 +362,17 @@ with tab1:
             if st.session_state['single_result']['Card Number'] != 'N/A' and st.session_state['single_result']['Card Number'] != 'Not Found':
                 card_num_display = st.session_state['single_result']['Card Number']
 
-                # إنشاء HTML للرابط
-                card_link_html = f'<a href="#" onclick="event.preventDefault(); window.parent.postMessage({{type: \'deep_search_single\', card_number: \'{card_num_display}\'}}, \'*\');">{card_num_display}</a>'
-                
                 # عرض الجدول الأصلي
                 st.dataframe(result_df, use_container_width=True)
                 
-                # عرض الرابط كنص منفصل
-                st.write(f"Click on the Card Number below to perform a deep search:")
-                st.components.v1.html(f"<p>{card_link_html}</p>", height=30)
-
-                # التحقق من النقر على الرابط (من خلال postMessage)
-                # نستخدم قاعدة بيانات جلسة مبسطة للتحقق
-                if 'clicked_card' in st.query_params:
-                    clicked_card = st.query_params['clicked_card']
-                    if clicked_card == card_num_display and not st.session_state['deep_single_running']:
-                        st.session_state['deep_single_running'] = True
-                        st.session_state['deep_single_card'] = clicked_card
-                        st.query_params.clear() # مسح الرابط من عنوان URL
-                        st.rerun()
+                # إنشاء رابط للبحث العميق باستخدام st.markdown
+                st.write(f"Click on the link below to perform a deep search for card {card_num_display}:")
+                if st.button(f"🔍 Deep Search Card {card_num_display}", key=f"deep_search_{card_num_display}"):
+                    st.session_state['deep_single_running'] = True
+                    st.session_state['deep_single_card'] = card_num_display
+                    st.rerun()
                 
-                # التحقق من النقر من خلال postMessage
+                # تنفيذ البحث العميق
                 if st.session_state['deep_single_running'] and not st.session_state['deep_single_result']:
                     card_to_search = st.session_state['single_result']['Card Number']
                     if card_to_search == st.session_state['deep_single_card']:
