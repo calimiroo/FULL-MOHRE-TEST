@@ -1,10 +1,5 @@
 streamlit
 pandas
-undetected-chromedriver
 selenium
-requests
-openpyxl
-deep-translator
-streamlit-aggrid
-setuptools
-packaging
+webdriver-manager
+altair<5
