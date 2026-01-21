@@ -1,3 +1,10 @@
-selenium
+streamlit
 pandas
-webdriver-manager
+undetected-chromedriver
+selenium
+requests
+openpyxl
+deep-translator
+streamlit-aggrid
+setuptools
+packaging
