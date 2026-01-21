@@ -4,6 +4,7 @@ import time
 import os
 from selenium import webdriver
 from selenium.webdriver.chrome.options import Options
+from selenium.webdriver.chrome.service import Service
 from selenium.webdriver.common.by import By
 from selenium.webdriver.support.ui import WebDriverWait
 from selenium.webdriver.support import expected_conditions as EC
@@ -12,15 +13,13 @@ from datetime import datetime, timedelta
 from deep_translator import GoogleTranslator
 
 # --- إعدادات Streamlit Cloud لـ Selenium ---
-# يجب أن يكون ملف chromedriver موجوداً في المسار /usr/bin/chromedriver
-# ويجب أن يكون ملف Chrome/Chromium موجوداً في المسار /usr/bin/google-chrome
-# في بيئة Streamlit Cloud، يتم توفير هذه الملفات مسبقاً.
+# يجب إضافة chromium-browser و chromium-chromedriver إلى ملف packages.txt
 
 @st.cache_resource
 def get_driver():
     """
     إعداد متصفح Chrome مع الخيارات اللازمة للعمل في بيئة Streamlit Cloud.
-    تم استبدال undetected_chromedriver بـ selenium العادي لتجنب مشاكل الصلاحيات.
+    تم تحديد المسارات بشكل صريح لحل مشاكل الاتصال (urllib3 Retrying).
     """
     options = Options()
     options.add_argument("--headless")
@@ -31,14 +30,19 @@ def get_driver():
     options.add_argument("--disable-extensions")
     options.add_argument("--disable-setuid-sandbox")
     options.add_argument("--disable-infobars")
+    options.add_argument("--remote-debugging-port=9222") # إضافة منفذ تصحيح الأخطاء عن بعد
+
+    # المسارات الصحيحة لـ Streamlit Cloud
+    chrome_path = "/usr/bin/chromium-browser"
+    driver_path = "/usr/bin/chromedriver"
     
-    # تحديد مسار ملف التشغيل (ضروري في بعض البيئات السحابية)
-    # في Streamlit Cloud، عادةً ما يكون المسار هو /usr/bin/chromedriver
-    # driver = webdriver.Chrome(options=options)
+    options.binary_location = chrome_path
+    service = Service(executable_path=driver_path)
     
-    # استخدام Service لضمان تحديد المسار بشكل صحيح
-    from selenium.webdriver.chrome.service import Service
-    service = Service(executable_path="/usr/bin/chromedriver")
+    # محاولة إضافة خيارات لتجاوز الحماية (Stealth-like options)
+    options.add_experimental_option("excludeSwitches", ["enable-automation"])
+    options.add_experimental_option('useAutomationExtension', False)
+    
     driver = webdriver.Chrome(service=service, options=options)
     
     return driver
@@ -199,7 +203,6 @@ def deep_extract_by_card(card_number):
         time.sleep(0.5)
         
         # البحث عن العنصر الذي يحتوي على النص "Electronic Work Permit Information"
-        # أو استخدام الـ XPath للعثور على عنصر القائمة
         try:
             # محاولة البحث عن العنصر في القائمة المنسدلة
             list_item = wait.until(EC.element_to_be_clickable((By.XPATH, "//ul[@id='optionsList']//li[contains(., 'Electronic Work Permit Information')]")))
@@ -218,7 +221,7 @@ def deep_extract_by_card(card_number):
         input_data.send_keys(card_number)
         
         # 4) تجاوز الكابتشا (باستخدام السكربت المكتشف)
-        # الكابتشا عبارة عن رقم يظهر كنص عادي في عنصر DIV/SPAN
+        # تم تصحيح الـ SyntaxWarning في السكربت
         
         # ننتظر ظهور الكابتشا أولاً
         time.sleep(2)
@@ -226,7 +229,7 @@ def deep_extract_by_card(card_number):
         js_fill_captcha = """
         try{
             // البحث عن النص المكون من 4 أرقام في العناصر المرئية
-            const code = Array.from(document.querySelectorAll('div,span,b,strong')).map(el => el.innerText.trim()).find(txt => /^\d{4}$/.test(txt));
+            const code = Array.from(document.querySelectorAll('div,span,b,strong')).map(el => el.innerText.trim()).find(txt => /^\\d{4}$/.test(txt));
             const input = document.getElementById('InputCaptcha');
             if(code && input){
                 input.value = code;
@@ -241,7 +244,6 @@ def deep_extract_by_card(card_number):
         captcha_filled = driver.execute_script(js_fill_captcha)
         
         if not captcha_filled:
-            # محاولة أخرى للبحث عن الكابتشا في حالة فشل السكربت الأول
             st.warning("Captcha script failed, trying fallback.")
             
         # 5) الضغط على زر البحث
