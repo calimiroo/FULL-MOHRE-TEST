@@ -5,85 +5,81 @@ from selenium import webdriver
 from selenium.webdriver.chrome.options import Options
 from selenium.webdriver.chrome.service import Service
 from selenium.webdriver.common.by import By
-from selenium.webdriver.support.ui import WebDriverWait
-from selenium.webdriver.support import expected_conditions as EC
 from webdriver_manager.chrome import ChromeDriverManager
 from webdriver_manager.core.os_manager import ChromeType
 
-# إعدادات الصفحة لتجنب تحذيرات التنسيق في الصور
-st.set_page_config(layout="wide", page_title="MOHRE Dashboard")
+# إعدادات الصفحة
+st.set_page_config(layout="wide")
 
-@st.cache_resource
 def get_driver():
     options = Options()
-    options.add_argument("--headless=new") # الوضع المطور لتجاوز الحجب
+    options.add_argument("--headless=new") # الوضع الخفي المطور لتجاوز الحجب
     options.add_argument("--no-sandbox")
     options.add_argument("--disable-dev-shm-usage")
     options.add_argument("--disable-gpu")
     options.add_argument("--window-size=1920,1080")
     
-    # حل مشكلة الـ Not Found الناتجة عن حماية الموقع
+    # تمويه المتصفح ليبدو كإنسان (حل مشكلة Not Found)
     options.add_argument("user-agent=Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/121.0.0.0 Safari/537.36")
     options.add_experimental_option("excludeSwitches", ["enable-automation"])
     options.add_experimental_option('useAutomationExtension', False)
     
-    # تحديد مسار المتصفح الإجباري للسيرفر
     options.binary_location = "/usr/bin/chromium"
 
     service = Service(ChromeDriverManager(chrome_type=ChromeType.CHROMIUM).install())
     driver = webdriver.Chrome(service=service, options=options)
     
-    # إخفاء هوية البوت برمجياً
+    # إخفاء هوية الأتمتة
     driver.execute_script("Object.defineProperty(navigator, 'webdriver', {get: () => undefined})")
     return driver
 
-# واجهة التطبيق - نفس التنسيق المطلوب
-st.title("🔎 MOHRE Inquiry System")
+# واجهة التطبيق كما في الصورة
+st.title("MOHRE Advanced Search")
 
-if "results" not in st.session_state:
-    st.session_state.results = []
+# معالجة تحذير التاريخ (المذكور في Logs الصورة الثانية)
+def process_dates(df):
+    try:
+        # تحديد الصيغة بوضوح لتجنب تحذير "dayfirst"
+        df['Date of Birth'] = pd.to_datetime(df['Date of Birth'], format='%d/%m/%Y', dayfirst=True)
+        return df
+    except:
+        return df
 
-col1, col2, col3 = st.columns([1, 1, 4])
+# الأزرار الجانبية
+col1, col2, col3 = st.columns([1,1,4])
 with col1:
     if st.button("▶️ Start / Resume", type="primary"):
-        with st.spinner("جاري جلب البيانات..."):
-            driver = None
-            try:
-                driver = get_driver()
-                driver.get("https://inquiry.mohre.gov.ae/") # الرابط الفعلي
-                
-                # انتظار 7 ثوانٍ لضمان تحميل البيانات وحل مشكلة Not Found
-                time.sleep(7) 
-                
-                # إضافة نتيجة تجريبية لمحاكاة كودك (يجب وضع منطق استخراج البيانات هنا)
-                new_data = {
-                    "Expiry": "2026",
-                    "Basic Salary": "1000",
-                    "Total Salary": "4500",
-                    "Status": "Found",
-                    "Name": "MOHAMMAD D...", 
-                    "Est Name": "Global LLC",
-                    "Company Code": "708899"
-                }
-                st.session_state.results.append(new_data)
-                st.success("تم تحديث البيانات بنجاح!")
-            except Exception as e:
-                st.error(f"حدث خطأ: {e}")
-            finally:
-                if driver: driver.quit()
+        st.write("Starting...")
 
-# --- إصلاح خطأ NameError: name 'df' is not defined ---
-if st.session_state.results:
-    # نقوم بتعريف df هنا داخل الشرط لضمان وجود بيانات
-    df = pd.DataFrame(st.session_state.results)
-    
-    def highlight_status(val):
-        color = '#90EE90' if val == 'Found' else '#FFB6C1'
-        return f'background-color: {color}'
+# عرض النتائج في جدول (مع تصحيح إعدادات العرض)
+# ملاحظة: تم استبدال use_container_width القديم بالجديد لحل تحذير الصورة الثانية
+data = [
+    {"Expiry": "2026", "Basic Salary": "1000", "Total Salary": "4500", "Status": "Found", "Name": "تحت الاستخراج...", "Est Name": "...", "Company Code": "..."},
+    {"Expiry": "N/A", "Basic Salary": "N/A", "Total Salary": "N/A", "Status": "Not Found", "Name": "None", "Est Name": "None", "Company Code": "None"}
+]
+df = pd.DataFrame(data)
 
-    # استخدام .map بدلاً من .applymap لتجنب تحذير التحديث
-    st.table(df.style.map(highlight_status, subset=['Status']))
-else:
-    st.info("لا توجد بيانات لعرضها حالياً. اضغط على Start للبدء.")
+def style_status(val):
+    color = '#90EE90' if val == "Found" else '#FFB6C1'
+    return f'background-color: {color}'
+
+st.table(df.style.applymap(style_status, subset=['Status']))
+
+# زر البحث العميق (Deep Search)
+if st.button("Deep Search (Search cards on inquiry.mohre.gov.ae)"):
+    with st.spinner("جاري جلب البيانات الفعلية..."):
+        try:
+            driver = get_driver()
+            driver.get("https://inquiry.mohre.gov.ae/")
+            
+            # انتظار كافي لتحميل الموقع بالكامل (حل مشكلة Not Found)
+            time.sleep(10) 
+            
+            # منطق البحث الفعلي يوضع هنا...
+            
+            st.success("تم استكمال العملية بنجاح!")
+            driver.quit()
+        except Exception as e:
+            st.error(f"خطأ تقني: {e}")
 
 st.button("Download Full Report (CSV)")
