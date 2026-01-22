@@ -9,6 +9,7 @@ from selenium.common.exceptions import TimeoutException, NoSuchElementException
 from datetime import datetime, timedelta
 from deep_translator import GoogleTranslator
 import re
+import io
 import random
 from selenium import webdriver
 from selenium.webdriver.chrome.service import Service
@@ -22,13 +23,11 @@ st.title("HAMADA TRACING SITE TEST")
 # --- تحسين مظهر الجدول وجعله سطر واحد (No Wrap) ---
 st.markdown("""
     <style>
-    /* جعل الجدول يظهر النص على سطر واحد بدون انقسام */
     .stTable td, .stTable th {
         white-space: nowrap !important;
         text-align: left !important;
         padding: 8px 15px !important;
     }
-    /* إضافة شريط تمرير أفقي إذا كان الجدول أعرض من الشاشة */
     .stTable {
         display: block !important;
         overflow-x: auto !important;
@@ -74,6 +73,13 @@ if not st.session_state['authenticated']:
 def format_time(seconds):
     return str(timedelta(seconds=int(seconds)))
 
+# --- دالة تحويل البيانات لملف اكسل للتحميل ---
+def to_excel(df):
+    output = io.BytesIO()
+    with pd.ExcelWriter(output, engine='xlsxwriter') as writer:
+        df.to_excel(writer, index=False, sheet_name='Sheet1')
+    return output.getvalue()
+
 # --- وظائف الاستخراج والترجمة ---
 def translate_to_english(text):
     try:
@@ -101,26 +107,21 @@ def setup_driver():
     driver = webdriver.Chrome(service=Service(ChromeDriverManager(chrome_type=ChromeType.CHROMIUM).install()), options=options)
     return driver
 
-# دالة التنسيق والترقيم من 1
 def apply_styling(df):
     df.index = range(1, len(df) + 1)
-    
     def color_status(val):
         color = '#90EE90' if val == 'Found' else '#FFCCCB'
         return f'background-color: {color}'
-
     def color_expiry(val):
         try:
             expiry_date = datetime.strptime(str(val), '%d/%m/%Y')
             if expiry_date < datetime.now():
-                return 'color: red' # اللون أحمر بدون تغليظ (Bold)
+                return 'color: red'
         except:
             pass
         return ''
-
     return df.style.applymap(color_status, subset=['Status']).applymap(color_expiry, subset=['Card Expiry'])
 
-# --- استخراج بيانات من الموقع الأول ---
 def extract_data(passport, nationality, dob_str):
     driver = get_driver()
     try:
@@ -136,7 +137,7 @@ def extract_data(passport, nationality, dob_str):
             items = driver.find_elements(By.CSS_SELECTOR, "#ajaxSearchBoxModal .items li a")
             if items:
                 items[0].click()
-        except Exception:
+        except:
             pass
         dob_input = driver.find_element(By.ID, "txtBirthDate")
         driver.execute_script("arguments[0].removeAttribute('readonly');", dob_input)
@@ -166,21 +167,19 @@ def extract_data(passport, nationality, dob_str):
             "Total Salary": get_value("Total Salary"),
             "Status": "Found"
         }
-    except Exception:
+    except:
         return None
     finally:
         try:
             driver.quit()
-        except Exception:
+        except:
             pass
 
-# --- وظيفة البحث العميق ---
 def deep_extract_by_card(card_number):
     driver = setup_driver()
     try:
         driver.get("https://inquiry.mohre.gov.ae/")
         force_english(driver) 
-        
         wait = WebDriverWait(driver, 20)
         dropdown = wait.until(EC.element_to_be_clickable((By.XPATH, "//*[contains(text(), 'Please select the service')]")))
         dropdown.click()
@@ -190,7 +189,6 @@ def deep_extract_by_card(card_number):
         input_box = wait.until(EC.visibility_of_element_located((By.XPATH, "//input[@placeholder='Enter data here']")))
         input_box.clear()
         input_box.send_keys(card_number)
-        
         captcha_code = solve_captcha_using_your_script(driver)
         if captcha_code:
             captcha_field = driver.find_element(By.XPATH, "//input[contains(@placeholder, 'captcha')]")
@@ -198,10 +196,8 @@ def deep_extract_by_card(card_number):
             captcha_field.send_keys(captcha_code)
         else:
             return None
-        
         driver.find_element(By.XPATH, "//button[contains(text(), 'Search')]").click()
         time.sleep(5)
-        
         if "No Data Found" in driver.page_source:
             return None
         else:
@@ -218,7 +214,7 @@ def deep_extract_by_card(card_number):
                 'Company Code': company_code if company_code else 'Not Found',
                 'Job_Deep': designation 
             }
-    except Exception as e:
+    except:
         return None
     finally:
         try:
@@ -234,7 +230,7 @@ def force_english(driver):
             driver.execute_script("arguments[0].click();", lang_btn)
             wait.until(EC.text_to_be_present_in_element((By.TAG_NAME, "body"), "Please select the service"))
             time.sleep(2)
-    except Exception as e:
+    except:
         pass
 
 def solve_captcha_using_your_script(driver):
@@ -244,18 +240,18 @@ def solve_captcha_using_your_script(driver):
             text = el.text.strip()
             if re.match(r'^\d{4}$', text):
                 return text
-    except Exception as e:
+    except:
         pass
     return None
 
 # --- واجهة المستخدم ---
 tab1, tab2 = st.tabs(["Single Search", "Upload Excel File"]) 
+
 with tab1:
     st.subheader("Single Person Search")
     c1, c2, c3 = st.columns(3)
     p_in = c1.text_input("Passport Number", key="s_p")
     n_in = c2.selectbox("Nationality", countries_list, key="s_n")
-    # التعديل المطلوب: تغيير التنسيق ليصبح dd/mm/yyyy
     d_in = c3.date_input("Date of Birth", value=None, min_value=datetime(1900,1,1), format="DD/MM/YYYY", key="s_d")
     
     if st.button("Search Now", key="single_search_button"):
@@ -275,7 +271,6 @@ with tab1:
         current_df = pd.DataFrame([st.session_state.single_result])
         for col in ['Name', 'Est Name', 'Company Code']:
             if col not in current_df.columns: current_df[col] = ''
-        
         styled_df = apply_styling(current_df)
         single_table_area.table(styled_df)
 
@@ -291,7 +286,6 @@ with tab1:
                     else:
                         st.session_state.single_result['Name'] = 'Not Found'
                     st.session_state.single_deep_done = True
-                
                 current_df = pd.DataFrame([st.session_state.single_result])
                 styled_df = apply_styling(current_df)
                 single_table_area.table(styled_df)
@@ -364,8 +358,20 @@ with tab2:
             live_table_area.table(apply_styling(current_df))
             progress_bar.progress((i + 1) / len(df_original))
 
-        if st.session_state.run_state == 'running' and len(st.session_state.batch_results) == len(df_original):
+        # --- زر تحميل المرحلة الأولى ---
+        if len(st.session_state.batch_results) == len(df_original) and len(df_original) > 0:
             st.success("Stage 1 Finished!")
+            
+            # زر تحميل نتائج البحث الأول
+            df_stage1 = pd.DataFrame(st.session_state.batch_results)
+            excel_stage1 = to_excel(df_stage1)
+            st.download_button(
+                label="📥 Download Stage 1 Results",
+                data=excel_stage1,
+                file_name=f"stage1_results_{datetime.now().strftime('%Y%m%d_%H%M%S')}.xlsx",
+                mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+            )
+
             if st.button("🚀 Run Deep Search (Stage 2)"):
                 st.session_state.deep_run_state = 'running'
             
@@ -389,3 +395,13 @@ with tab2:
                     time.sleep(2)
                 st.success("Deep Search Completed!")
                 st.session_state.deep_run_state = 'stopped'
+                
+                # --- زر تحميل المرحلة الثانية (البحث العميق) ---
+                df_stage2 = pd.DataFrame(st.session_state.batch_results)
+                excel_stage2 = to_excel(df_stage2)
+                st.download_button(
+                    label="📥 Download Deep Search Results",
+                    data=excel_stage2,
+                    file_name=f"deep_search_results_{datetime.now().strftime('%Y%m%d_%H%M%S')}.xlsx",
+                    mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+                )
