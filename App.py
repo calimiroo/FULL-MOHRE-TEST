@@ -128,7 +128,6 @@ def extract_data(passport, nationality, dob_str):
             # ملاحظة: بعد Deep Search سنستبدل Job Description بقيمة Designation من الموقع الثاني
             "Job Description": translate_to_english(get_value("Job Description")),
             "Card Number": card_num,
-            "Card Issue": get_value("Card Issue"),
             "Card Expiry": get_value("Card Expiry"),
             "Basic Salary": get_value("Basic Salary"),
             "Total Salary": get_value("Total Salary"),
@@ -266,10 +265,10 @@ with tab1:
             if col not in current_df.columns:
                 current_df[col] = ''
         styled_df = current_df.style.applymap(color_status, subset=['Status'])
-        single_table_area.dataframe(styled_df, use_container_width=True)
+        single_table_area.dataframe(styled_df, use_container_width=True, hide_index=True)
 
         if st.session_state.single_result.get('Status') == 'Found' and not st.session_state.single_deep_done:
-            if st.button("Deep Search", key="single_deep_search_button"):
+            if st.button("Deep Search (Search cards on inquiry.mohre.gov.ae)", key="single_deep_search_button"):
                 with st.spinner("Deep Searching..."):
                     deep_res = deep_extract_by_card(st.session_state.single_result['Card Number'])
                     if deep_res:
@@ -286,7 +285,7 @@ with tab1:
                 # Update the table in place after deep search
                 current_df = pd.DataFrame([st.session_state.single_result])
                 styled_df = current_df.style.applymap(color_status, subset=['Status'])
-                single_table_area.dataframe(styled_df, use_container_width=True)
+                single_table_area.dataframe(styled_df, use_container_width=True, hide_index=True)
 
 with tab2:
     st.subheader("Batch Processing Control")
@@ -331,7 +330,7 @@ with tab2:
                 # عرض الجدول الحالي
                 current_df = pd.DataFrame(st.session_state.batch_results)
                 styled_df = current_df.style.applymap(color_status, subset=['Status'])
-                live_table_area.dataframe(styled_df, use_container_width=True)
+                live_table_area.dataframe(styled_df, use_container_width=True, hide_index=True)
                 progress_bar.progress((i + 1) / len(df))
                 elapsed_seconds = time.time() - st.session_state.start_time_ref if st.session_state.start_time_ref else 0
                 stats_area.markdown(f"✅ **Actual Success (Found):** {actual_success} | ⏱️ **Total Time:** {format_time(elapsed_seconds)}")
@@ -354,7 +353,6 @@ with tab2:
                     "Date of Birth": dob,
                     "Job Description": "N/A",
                     "Card Number": "N/A",
-                    "Card Issue": "N/A",
                     "Card Expiry": "N/A",
                     "Basic Salary": "N/A",
                     "Total Salary": "N/A",
@@ -368,7 +366,7 @@ with tab2:
             current_df = pd.DataFrame(st.session_state.batch_results)
             # نعرض الجدول الأولي هنا دائمًا (حتى أثناء الـ Deep Search)
             styled_df = current_df.style.applymap(color_status, subset=['Status'])
-            live_table_area.dataframe(styled_df, use_container_width=True)
+            live_table_area.dataframe(styled_df, use_container_width=True, hide_index=True)
         # عند اكتمال الـ batch الأولي
         if st.session_state.run_state == 'running' and len(st.session_state.batch_results) == len(df):
             st.success(f"Batch Completed! Total Time: {format_time(time.time() - st.session_state.start_time_ref)}")
@@ -380,7 +378,7 @@ with tab2:
             # زر تحميل أولي
             st.download_button("Download Full Report (CSV)", final_df.to_csv(index=False).encode('utf-8'), "full_results.csv")
             # زر البحث العميق - يظهر بعد اكتمال الـ batch
-            if st.button("Deep Search"):
+            if st.button("Deep Search (Search cards on inquiry.mohre.gov.ae)"):
                 st.session_state.deep_run_state = 'running'
                 st.session_state.deep_progress = 0
             # تنفيذ البحث العميق إذا بدأ
@@ -426,7 +424,7 @@ with tab2:
                         # حدث عرض الجدول الأولي مباشرةً (لا يختفي)
                         current_df = pd.DataFrame(st.session_state.batch_results)
                         styled_df = current_df.style.applymap(color_status, subset=['Status'])
-                        live_table_area.dataframe(styled_df, use_container_width=True)
+                        live_table_area.dataframe(styled_df, use_container_width=True, hide_index=True)
                         time.sleep(random.uniform(3, 6))
                     st.success(f"Deep Search Completed: {deep_success}/{deep_total} succeeded")
                     # زر تحميل الملف النهائي بعد الـ Deep Search
