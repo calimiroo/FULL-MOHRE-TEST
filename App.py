@@ -21,12 +21,12 @@ if 'run_state' not in st.session_state:
     st.session_state['run_state'] = 'stopped'
 if 'batch_results' not in st.session_state:
     st.session_state['batch_results'] = []
+if 'single_result' not in st.session_state:
+    st.session_state['single_result'] = None
 if 'start_time_ref' not in st.session_state:
     st.session_state['start_time_ref'] = None
 if 'deep_run_state' not in st.session_state:
     st.session_state['deep_run_state'] = 'stopped'
-if 'deep_progress' not in st.session_state:
-    st.session_state['deep_progress'] = 0
 
 # قائمة الجنسيات
 countries_list = ["Select Nationality", "Afghanistan", "Albania", "Algeria", "Andorra", "Angola", "Antigua and Barbuda", "Argentina", "Armenia", "Australia", "Austria", "Azerbaijan", "Bahamas", "Bahrain", "Bangladesh", "Barbados", "Belarus", "Belgium", "Belize", "Benin", "Bhutan", "Bolivia", "Bosnia and Herzegovina", "Botswana", "Brazil", "Brunei", "Bulgaria", "Burkina Faso", "Burundi", "Cabo Verde", "Cambodia", "Cameroon", "Canada", "Central African Republic", "Chad", "Chile", "China", "Colombia", "Comoros", "Congo (Congo-Brazzaville)", "Costa Rica", "Côte d'Ivoire", "Croatia", "Cuba", "Cyprus", "Czechia (Czech Republic)", "Democratic Republic of the Congo", "Denmark", "Djibouti", "Dominica", "Dominican Republic", "Ecuador", "Egypt", "El Salvador", "Equatorial Guinea", "Eritrea", "Estonia", "Eswatini", "Ethiopia", "Fiji", "Finland", "France", "Gabon", "Gambia", "Georgia", "Germany", "Ghana", "Greece", "Grenada", "Guatemala", "Guinea", "Guinea-Bissau", "Guyana", "Haiti", "Holy See", "Honduras", "Hungary", "Iceland", "India", "Indonesia", "Iran", "Iraq", "Ireland", "Israel", "Italy", "Jamaica", "Japan", "Jordan", "Kazakhstan", "Kenya", "Kiribati", "Kuwait", "Kyrgyzstan", "Laos", "Latvia", "Lebanon", "Lesotho", "Liberia", "Libya", "Liechtenstein", "Lithuania", "Luxembourg", "Madagascar", "Malawi", "Malaysia", "Maldives", "Mali", "Malta", "Marshall Islands", "Mauritania", "Mauritius", "Mexico", "Micronesia", "Moldova", "Monaco", "Mongolia", "Montenegro", "Morocco", "Mozambique", "Myanmar", "Namibia", "Nauru", "Nepal", "Netherlands", "New Zealand", "Nicaragua", "Niger", "Nigeria", "North Korea", "North Macedonia", "Norway", "Oman", "Pakistan", "Palau", "Palestine State", "Panama", "Papua New Guinea", "Paraguay", "Peru", "Philippines", "Poland", "Portugal", "Qatar", "Romania", "Russia", "Rwanda", "Saint Kitts and Nevis", "Saint Lucia", "Saint Vincent and the Grenadines", "Samoa", "San Marino", "Sao Tome and Principe", "Saudi Arabia", "Senegal", "Serbia", "Seychelles", "Sierra Leone", "Singapore", "Slovakia", "Slovenia", "Solomon Islands", "Somalia", "South Africa", "South Korea", "South Sudan", "Spain", "Sri Lanka", "Sudan", "Suriname", "Sweden", "Switzerland", "Syria", "Tajikistan", "Tanzania", "Thailand", "Timor-Leste", "Togo", "Tonga", "Trinidad and Tobago", "Tunisia", "Turkey", "Turkmenistan", "Tuvalu", "Uganda", "Ukraine", "United Arab Emirates", "United Kingdom", "United States of America", "Uruguay", "Uzbekistan", "Vanuatu", "Venezuela", "Vietnam", "Yemen", "Zambia", "Zimbabwe"] 
@@ -56,13 +56,11 @@ def translate_to_english(text):
     except: return text
 
 def get_driver():
-    """نسخة محسنة للعمل على Streamlit Cloud بدون InvalidArgumentException"""
     options = uc.ChromeOptions()
     options.add_argument('--headless')
     options.add_argument('--no-sandbox')
     options.add_argument('--disable-dev-shm-usage')
     options.add_argument('--disable-gpu')
-    # ملاحظة: تم حذف experimental_options لتجنب التعارض في البيئة السحابية
     try:
         driver = uc.Chrome(options=options, headless=True)
         return driver
@@ -122,15 +120,13 @@ def extract_data(passport, nationality, dob_str):
         try: driver.quit()
         except: pass
 
-# --- البحث العميق (Stage 2 - باستخدام منطق الكود الثاني) ---
+# --- البحث العميق (Stage 2) ---
 def deep_extract_by_card(card_number):
     driver = get_driver()
     if not driver: return None
     wait = WebDriverWait(driver, 20)
     try:
         driver.get("https://inquiry.mohre.gov.ae/")
-        
-        # 1. Force English
         try:
             lang_btn = wait.until(EC.presence_of_element_located((By.ID, "btnlanguage")))
             if "English" in lang_btn.text:
@@ -138,19 +134,16 @@ def deep_extract_by_card(card_number):
                 time.sleep(2)
         except: pass
 
-        # 2. Select Service
         dropdown = wait.until(EC.element_to_be_clickable((By.XPATH, "//*[contains(text(), 'Please select the service')]")))
         dropdown.click()
         time.sleep(1.5)
         service_opt = wait.until(EC.element_to_be_clickable((By.XPATH, "//*[contains(text(), 'Electronic Work Permit Information')]")))
         service_opt.click()
 
-        # 3. Enter Card Number
         input_box = wait.until(EC.visibility_of_element_located((By.XPATH, "//input[@placeholder='Enter data here']")))
         input_box.clear()
         input_box.send_keys(card_number)
 
-        # 4. Captcha Logic
         captcha_code = None
         elements = driver.find_elements(By.XPATH, "//div | //span | //b | //strong | //p")
         for el in elements:
@@ -168,7 +161,6 @@ def deep_extract_by_card(card_number):
             
             if "No Data Found" in driver.page_source: return None
             
-            # 5. Data Extraction
             comp_name = driver.find_element(By.XPATH, "//*[contains(text(), 'Est Name')]/..").text.replace("Est Name", "").replace(":", "").strip()
             cust_name = driver.find_element(By.XPATH, "//*[contains(text(), 'Name') and not(contains(text(), 'Est Name'))]/..").text.replace("Name", "").replace(":", "").strip()
             designation = driver.find_element(By.XPATH, "//*[contains(text(), 'Designation')]/..").text.replace("Designation", "").replace(":", "").strip()
@@ -195,10 +187,29 @@ with tab1:
     
     if st.button("Search Now"):
         if p_in and n_in != "Select Nationality" and d_in:
-            with st.spinner("Searching..."):
+            with st.spinner("Searching Stage 1..."):
                 res = extract_data(p_in, n_in, d_in.strftime("%d/%m/%Y"))
-                if res: st.table(pd.DataFrame([res]))
-                else: st.error("No data found.")
+                st.session_state.single_result = res
+                if not res: st.error("No data found.")
+
+    if st.session_state.single_result:
+        # عرض الجدول الحالي
+        st.table(pd.DataFrame([st.session_state.single_result]))
+        
+        # خيار البحث العميق الفردي
+        if st.session_state.single_result.get("Status") == "Found":
+            if st.button("🚀 Run Deep Search (Single)"):
+                with st.spinner("Searching Stage 2 (Deep)..."):
+                    card = st.session_state.single_result.get("Card Number")
+                    d_res = deep_extract_by_card(card)
+                    if d_res:
+                        # تحديث البيانات
+                        st.session_state.single_result.update(d_res)
+                        st.session_state.single_result['Job Description'] = d_res['Designation']
+                        st.success("Deep details found!")
+                        st.rerun() # لإعادة رسم الجدول بالبيانات الجديدة
+                    else:
+                        st.error("No deep data found.")
 
 with tab2:
     st.subheader("Batch Processing Control")
@@ -227,7 +238,6 @@ with tab2:
         stats_area = st.empty()
         live_table_area = st.empty()
         deep_status_area = st.empty()
-        deep_progress_bar = st.empty()
 
         actual_success = 0
 
@@ -273,7 +283,7 @@ with tab2:
                 st.session_state.deep_run_state = 'running'
 
             if st.session_state.deep_run_state == 'running':
-                to_deep = [idx for idx, r in enumerate(st.session_state.batch_results) if r.get('Status') == 'Found' and 'Name' not in r]
+                to_deep = [idx for idx, r in enumerate(st.session_state.batch_results) if r.get('Status') == 'Found']
                 deep_total = len(to_deep)
                 
                 if deep_total > 0:
@@ -285,11 +295,14 @@ with tab2:
                         
                         d_res = deep_extract_by_card(card)
                         if d_res:
+                            # تحديث البيانات الـ Live في الـ Session State
                             st.session_state.batch_results[idx].update(d_res)
+                            # استبدال الوظيفة بالوظيفة الجديدة
                             st.session_state.batch_results[idx]['Job Description'] = d_res['Designation']
                         
                         deep_idx += 1
                         d_prog.progress(deep_idx / deep_total)
+                        # تحديث الجدول الـ Live أمام المستخدم فوراً
                         live_table_area.dataframe(pd.DataFrame(st.session_state.batch_results).style.map(color_status, subset=['Status']), use_container_width=True)
                     
                     st.success("All Stages Completed!")
