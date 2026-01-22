@@ -269,7 +269,7 @@ with tab1:
         single_table_area.dataframe(styled_df, use_container_width=True)
 
         if st.session_state.single_result.get('Status') == 'Found' and not st.session_state.single_deep_done:
-            if st.button("Deep Search (Search cards on inquiry.mohre.gov.ae)", key="single_deep_search_button"):
+            if st.button("Deep Search)", key="single_deep_search_button"):
                 with st.spinner("Deep Searching..."):
                     deep_res = deep_extract_by_card(st.session_state.single_result['Card Number'])
                     if deep_res:
