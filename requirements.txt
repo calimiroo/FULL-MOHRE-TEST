@@ -1,6 +1,6 @@
+streamlit
 pandas
-xlsxwriter
-undetected-chromedriver
 selenium
 webdriver-manager
-deep-translator
+altair<5
+xlsxwriter
