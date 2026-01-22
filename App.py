@@ -9,6 +9,7 @@ from selenium.common.exceptions import TimeoutException, NoSuchElementException
 from datetime import datetime, timedelta
 from deep_translator import GoogleTranslator
 import re
+import io
 import random
 from selenium import webdriver
 from selenium.webdriver.chrome.service import Service
@@ -22,13 +23,11 @@ st.title("HAMADA TRACING SITE TEST")
 # --- تحسين مظهر الجدول وجعله سطر واحد (No Wrap) ---
 st.markdown("""
     <style>
-    /* جعل الجدول يظهر النص على سطر واحد بدون انقسام */
     .stTable td, .stTable th {
         white-space: nowrap !important;
         text-align: left !important;
         padding: 8px 15px !important;
     }
-    /* إضافة شريط تمرير أفقي إذا كان الجدول أعرض من الشاشة */
     .stTable {
         display: block !important;
         overflow-x: auto !important;
@@ -74,6 +73,13 @@ if not st.session_state['authenticated']:
 def format_time(seconds):
     return str(timedelta(seconds=int(seconds)))
 
+# --- دالة تحويل الجدول لملف Excel ---
+def to_excel(df):
+    output = io.BytesIO()
+    with pd.ExcelWriter(output, engine='xlsxwriter') as writer:
+        df.to_excel(writer, index=False, sheet_name='Sheet1')
+    return output.getvalue()
+
 # --- وظائف الاستخراج والترجمة ---
 def translate_to_english(text):
     try:
@@ -103,7 +109,8 @@ def setup_driver():
 
 # دالة التنسيق والترقيم من 1
 def apply_styling(df):
-    df.index = range(1, len(df) + 1)
+    df_styled = df.copy()
+    df_styled.index = range(1, len(df_styled) + 1)
     
     def color_status(val):
         color = '#90EE90' if val == 'Found' else '#FFCCCB'
@@ -113,12 +120,12 @@ def apply_styling(df):
         try:
             expiry_date = datetime.strptime(str(val), '%d/%m/%Y')
             if expiry_date < datetime.now():
-                return 'color: red' # اللون أحمر بدون تغليظ (Bold)
+                return 'color: red'
         except:
             pass
         return ''
 
-    return df.style.applymap(color_status, subset=['Status']).applymap(color_expiry, subset=['Card Expiry'])
+    return df_styled.style.applymap(color_status, subset=['Status']).applymap(color_expiry, subset=['Card Expiry'])
 
 # --- استخراج بيانات من الموقع الأول ---
 def extract_data(passport, nationality, dob_str):
@@ -136,7 +143,7 @@ def extract_data(passport, nationality, dob_str):
             items = driver.find_elements(By.CSS_SELECTOR, "#ajaxSearchBoxModal .items li a")
             if items:
                 items[0].click()
-        except Exception:
+        except:
             pass
         dob_input = driver.find_element(By.ID, "txtBirthDate")
         driver.execute_script("arguments[0].removeAttribute('readonly');", dob_input)
@@ -166,13 +173,11 @@ def extract_data(passport, nationality, dob_str):
             "Total Salary": get_value("Total Salary"),
             "Status": "Found"
         }
-    except Exception:
+    except:
         return None
     finally:
-        try:
-            driver.quit()
-        except Exception:
-            pass
+        try: driver.quit()
+        except: pass
 
 # --- وظيفة البحث العميق ---
 def deep_extract_by_card(card_number):
@@ -180,7 +185,6 @@ def deep_extract_by_card(card_number):
     try:
         driver.get("https://inquiry.mohre.gov.ae/")
         force_english(driver) 
-        
         wait = WebDriverWait(driver, 20)
         dropdown = wait.until(EC.element_to_be_clickable((By.XPATH, "//*[contains(text(), 'Please select the service')]")))
         dropdown.click()
@@ -196,35 +200,23 @@ def deep_extract_by_card(card_number):
             captcha_field = driver.find_element(By.XPATH, "//input[contains(@placeholder, 'captcha')]")
             captcha_field.clear()
             captcha_field.send_keys(captcha_code)
-        else:
-            return None
+        else: return None
         
         driver.find_element(By.XPATH, "//button[contains(text(), 'Search')]").click()
         time.sleep(5)
-        
-        if "No Data Found" in driver.page_source:
-            return None
+        if "No Data Found" in driver.page_source: return None
         else:
             comp_name = driver.find_element(By.XPATH, "//*[contains(text(), 'Est Name')]/..").text.replace("Est Name", "").replace(":", "").strip()
             cust_name = driver.find_element(By.XPATH, "//*[contains(text(), 'Name') and not(contains(text(), 'Est Name'))]/..").text.replace("Name", "").replace(":", "").strip()
             designation = driver.find_element(By.XPATH, "//*[contains(text(), 'Designation')]/..").text.replace("Designation", "").replace(":", "").strip()
             try:
                 company_code = driver.find_element(By.XPATH, "//*[contains(text(), 'Company Code')]/..").text.replace("Company Code", "").replace(":", "").strip()
-            except:
-                company_code = 'Not Found'
-            return {
-                'Name': cust_name if cust_name else 'Not Found',
-                'Est Name': comp_name if comp_name else 'Not Found',
-                'Company Code': company_code if company_code else 'Not Found',
-                'Job_Deep': designation 
-            }
-    except Exception as e:
-        return None
+            except: company_code = 'Not Found'
+            return {'Name': cust_name, 'Est Name': comp_name, 'Company Code': company_code, 'Job_Deep': designation}
+    except: return None
     finally:
-        try:
-            driver.quit()
-        except:
-            pass
+        try: driver.quit()
+        except: pass
 
 def force_english(driver):
     try:
@@ -234,28 +226,25 @@ def force_english(driver):
             driver.execute_script("arguments[0].click();", lang_btn)
             wait.until(EC.text_to_be_present_in_element((By.TAG_NAME, "body"), "Please select the service"))
             time.sleep(2)
-    except Exception as e:
-        pass
+    except: pass
 
 def solve_captcha_using_your_script(driver):
     try:
         elements = driver.find_elements(By.XPATH, "//div | //span | //b | //strong | //p")
         for el in elements:
             text = el.text.strip()
-            if re.match(r'^\d{4}$', text):
-                return text
-    except Exception as e:
-        pass
+            if re.match(r'^\d{4}$', text): return text
+    except: pass
     return None
 
 # --- واجهة المستخدم ---
 tab1, tab2 = st.tabs(["Single Search", "Upload Excel File"]) 
+
 with tab1:
     st.subheader("Single Person Search")
     c1, c2, c3 = st.columns(3)
     p_in = c1.text_input("Passport Number", key="s_p")
     n_in = c2.selectbox("Nationality", countries_list, key="s_n")
-    # التعديل المطلوب: تغيير التنسيق ليصبح dd/mm/yyyy
     d_in = c3.date_input("Date of Birth", value=None, min_value=datetime(1900,1,1), format="DD/MM/YYYY", key="s_d")
     
     if st.button("Search Now", key="single_search_button"):
@@ -269,32 +258,23 @@ with tab1:
                     st.error("No data found.")
                     st.session_state.single_result = None
 
-    single_table_area = st.empty()
-
     if st.session_state.single_result:
-        current_df = pd.DataFrame([st.session_state.single_result])
+        df_temp = pd.DataFrame([st.session_state.single_result])
         for col in ['Name', 'Est Name', 'Company Code']:
-            if col not in current_df.columns: current_df[col] = ''
-        
-        styled_df = apply_styling(current_df)
-        single_table_area.table(styled_df)
+            if col not in df_temp.columns: df_temp[col] = ''
+        st.table(apply_styling(df_temp))
 
         if st.session_state.single_result.get('Status') == 'Found' and not st.session_state.single_deep_done:
-            if st.button("Run Deep Search"):
+            if st.button("🚀 Run Deep Search"):
                 with st.spinner("Deep Searching..."):
                     deep_res = deep_extract_by_card(st.session_state.single_result['Card Number'])
                     if deep_res:
-                        st.session_state.single_result['Job Description'] = deep_res.get('Job_Deep', 'Not Found')
-                        st.session_state.single_result['Name'] = deep_res.get('Name', 'Not Found')
-                        st.session_state.single_result['Est Name'] = deep_res.get('Est Name', 'Not Found')
-                        st.session_state.single_result['Company Code'] = deep_res.get('Company Code', 'Not Found')
-                    else:
-                        st.session_state.single_result['Name'] = 'Not Found'
+                        st.session_state.single_result.update({
+                            'Job Description': deep_res['Job_Deep'], 'Name': deep_res['Name'],
+                            'Est Name': deep_res['Est Name'], 'Company Code': deep_res['Company Code']
+                        })
                     st.session_state.single_deep_done = True
-                
-                current_df = pd.DataFrame([st.session_state.single_result])
-                styled_df = apply_styling(current_df)
-                single_table_area.table(styled_df)
+                st.rerun()
 
 with tab2:
     st.subheader("Batch Processing Control")
@@ -302,10 +282,7 @@ with tab2:
     
     if uploaded_file:
         df_original = pd.read_excel(uploaded_file)
-        df_show = df_original.copy()
-        df_show.index = range(1, len(df_show) + 1)
         st.write(f"Total records: {len(df_original)}")
-        st.dataframe(df_show, height=150, use_container_width=True)
         
         col_ctrl1, col_ctrl2, col_ctrl3 = st.columns(3)
         if col_ctrl1.button("▶️ Start / Resume"):
@@ -322,9 +299,6 @@ with tab2:
         status_text = st.empty()
         stats_area = st.empty()
         live_table_area = st.empty()
-        deep_status_area = st.empty()
-        deep_progress_bar = st.empty()
-        actual_success = 0
         
         for i, row in df_original.iterrows():
             while st.session_state.run_state == 'paused':
@@ -333,9 +307,6 @@ with tab2:
             if st.session_state.run_state == 'stopped': break
             
             if i < len(st.session_state.batch_results):
-                if st.session_state.batch_results[i].get("Status") == "Found": actual_success += 1
-                current_df = pd.DataFrame(st.session_state.batch_results)
-                live_table_area.table(apply_styling(current_df))
                 progress_bar.progress((i + 1) / len(df_original))
                 continue
 
@@ -347,45 +318,41 @@ with tab2:
             status_text.info(f"Processing {i+1}/{len(df_original)}: {p_num}")
             res = extract_data(p_num, nat, dob)
             
-            if res:
-                actual_success += 1
-                st.session_state.batch_results.append(res)
-            else:
-                st.session_state.batch_results.append({
-                    "Passport Number": p_num, "Nationality": nat, "Date of Birth": dob,
-                    "Job Description": "N/A", "Card Number": "N/A", "Card Expiry": "N/A",
-                    "Basic Salary": "N/A", "Total Salary": "N/A", "Status": "Not Found"
-                })
-                
-            elapsed = time.time() - st.session_state.start_time_ref if st.session_state.start_time_ref else 0
-            stats_area.markdown(f"✅ **Success:** {actual_success} | ⏱️ **Time:** {format_time(elapsed)}")
+            st.session_state.batch_results.append(res if res else {
+                "Passport Number": p_num, "Nationality": nat, "Date of Birth": dob,
+                "Job Description": "N/A", "Card Number": "N/A", "Card Expiry": "N/A",
+                "Basic Salary": "N/A", "Total Salary": "N/A", "Status": "Not Found"
+            })
             
-            current_df = pd.DataFrame(st.session_state.batch_results)
-            live_table_area.table(apply_styling(current_df))
+            elapsed = time.time() - st.session_state.start_time_ref if st.session_state.start_time_ref else 0
+            found_count = len([x for x in st.session_state.batch_results if x.get('Status') == 'Found'])
+            stats_area.markdown(f"✅ **Success:** {found_count} | ⏱️ **Time:** {format_time(elapsed)}")
+            live_table_area.table(apply_styling(pd.DataFrame(st.session_state.batch_results)))
             progress_bar.progress((i + 1) / len(df_original))
 
-        if st.session_state.run_state == 'running' and len(st.session_state.batch_results) == len(df_original):
+        if len(st.session_state.batch_results) == len(df_original) and len(st.session_state.batch_results) > 0:
             st.success("Stage 1 Finished!")
+            # زر تحميل النتيجة الأولى
+            st.download_button("📥 Download Stage 1 Results", data=to_excel(pd.DataFrame(st.session_state.batch_results)), file_name="stage1_results.xlsx")
+            
             if st.button("🚀 Run Deep Search (Stage 2)"):
                 st.session_state.deep_run_state = 'running'
             
             if st.session_state.deep_run_state == 'running':
-                deep_recs = [r for r in st.session_state.batch_results if r.get('Status') == 'Found']
-                deep_total = len(deep_recs)
-                deep_idx = 0
-                for idx, rec in enumerate(st.session_state.batch_results):
-                    if rec.get('Status') != 'Found': continue
-                    card = rec.get('Card Number')
-                    deep_status_area.info(f"Deep Searching {deep_idx+1}/{deep_total}: {card}")
-                    deep_res = deep_extract_by_card(card)
-                    if deep_res:
-                        st.session_state.batch_results[idx]['Name'] = deep_res.get('Name')
-                        st.session_state.batch_results[idx]['Est Name'] = deep_res.get('Est Name')
-                        st.session_state.batch_results[idx]['Company Code'] = deep_res.get('Company Code')
-                        st.session_state.batch_results[idx]['Job Description'] = deep_res.get('Job_Deep')
-                    deep_idx += 1
-                    deep_progress_bar.progress(deep_idx / deep_total)
+                deep_bar = st.progress(0)
+                deep_recs = [idx for idx, r in enumerate(st.session_state.batch_results) if r.get('Status') == 'Found']
+                for d_idx, idx in enumerate(deep_recs):
+                    card = st.session_state.batch_results[idx]['Card Number']
+                    st.write(f"Deep Searching {d_idx+1}/{len(deep_recs)}: {card}")
+                    d_res = deep_extract_by_card(card)
+                    if d_res:
+                        st.session_state.batch_results[idx].update({
+                            'Name': d_res['Name'], 'Est Name': d_res['Est Name'],
+                            'Company Code': d_res['Company Code'], 'Job Description': d_res['Job_Deep']
+                        })
+                    deep_bar.progress((d_idx + 1) / len(deep_recs))
                     live_table_area.table(apply_styling(pd.DataFrame(st.session_state.batch_results)))
-                    time.sleep(2)
                 st.success("Deep Search Completed!")
+                # زر تحميل النتيجة الثانية
+                st.download_button("📥 Download Stage 2 Results (Final)", data=to_excel(pd.DataFrame(st.session_state.batch_results)), file_name="final_deep_results.xlsx")
                 st.session_state.deep_run_state = 'stopped'
