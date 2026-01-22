@@ -212,7 +212,6 @@ def deep_extract_by_card(card_number):
                 company_code = driver.find_element(By.XPATH, "//*[contains(text(), 'Company Code')]/..").text.replace("Company Code", "").replace(":", "").strip()
             except:
                 company_code = 'Not Found'
-            # تم حذف Designation من العرض هنا أيضاً
             return {
                 'Name': cust_name if cust_name else 'Not Found',
                 'Est Name': comp_name if comp_name else 'Not Found',
@@ -256,7 +255,8 @@ with tab1:
     c1, c2, c3 = st.columns(3)
     p_in = c1.text_input("Passport Number", key="s_p")
     n_in = c2.selectbox("Nationality", countries_list, key="s_n")
-    d_in = c3.date_input("Date of Birth", value=None, min_value=datetime(1900,1,1), key="s_d")
+    # التعديل المطلوب: تغيير التنسيق ليصبح dd/mm/yyyy
+    d_in = c3.date_input("Date of Birth", value=None, min_value=datetime(1900,1,1), format="DD/MM/YYYY", key="s_d")
     
     if st.button("Search Now", key="single_search_button"):
         if p_in and n_in != "Select Nationality" and d_in:
@@ -277,7 +277,7 @@ with tab1:
             if col not in current_df.columns: current_df[col] = ''
         
         styled_df = apply_styling(current_df)
-        single_table_area.table(styled_df) # عرض الجدول بنمط سطر واحد
+        single_table_area.table(styled_df)
 
         if st.session_state.single_result.get('Status') == 'Found' and not st.session_state.single_deep_done:
             if st.button("Run Deep Search"):
