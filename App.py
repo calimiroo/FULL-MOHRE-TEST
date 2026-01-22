@@ -46,6 +46,8 @@ if 'start_time_ref' not in st.session_state:
     st.session_state['start_time_ref'] = None
 if 'deep_run_state' not in st.session_state:
     st.session_state['deep_run_state'] = 'stopped'
+if 'deep_finished' not in st.session_state:
+    st.session_state['deep_finished'] = False
 if 'deep_progress' not in st.session_state:
     st.session_state['deep_progress'] = 0
 if 'single_result' not in st.session_state:
@@ -310,6 +312,7 @@ with tab2:
             st.session_state.run_state = 'stopped'
             st.session_state.batch_results = []
             st.session_state.start_time_ref = None
+            st.session_state.deep_finished = False
             st.rerun()
 
         progress_bar = st.progress(0)
@@ -362,18 +365,19 @@ with tab2:
         if len(st.session_state.batch_results) == len(df_original) and len(df_original) > 0:
             st.success("Stage 1 Finished!")
             
-            # زر تحميل نتائج البحث الأول
             df_stage1 = pd.DataFrame(st.session_state.batch_results)
             excel_stage1 = to_excel(df_stage1)
             st.download_button(
                 label="📥 Download Stage 1 Results",
                 data=excel_stage1,
                 file_name=f"stage1_results_{datetime.now().strftime('%Y%m%d_%H%M%S')}.xlsx",
-                mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+                mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                key="dl_stage1"
             )
 
-            if st.button("🚀 Run Deep Search (Stage 2)"):
-                st.session_state.deep_run_state = 'running'
+            if not st.session_state.deep_finished:
+                if st.button("🚀 Run Deep Search (Stage 2)"):
+                    st.session_state.deep_run_state = 'running'
             
             if st.session_state.deep_run_state == 'running':
                 deep_recs = [r for r in st.session_state.batch_results if r.get('Status') == 'Found']
@@ -395,13 +399,17 @@ with tab2:
                     time.sleep(2)
                 st.success("Deep Search Completed!")
                 st.session_state.deep_run_state = 'stopped'
-                
-                # --- زر تحميل المرحلة الثانية (البحث العميق) ---
+                st.session_state.deep_finished = True
+                st.rerun() # تحديث الصفحة لإظهار الزر الثابت
+
+            # --- زر تحميل المرحلة الثانية (البحث العميق) الثابت ---
+            if st.session_state.deep_finished:
                 df_stage2 = pd.DataFrame(st.session_state.batch_results)
                 excel_stage2 = to_excel(df_stage2)
                 st.download_button(
                     label="📥 Download Deep Search Results",
                     data=excel_stage2,
                     file_name=f"deep_search_results_{datetime.now().strftime('%Y%m%d_%H%M%S')}.xlsx",
-                    mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+                    mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                    key="dl_stage2"
                 )
