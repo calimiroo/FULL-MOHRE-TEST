@@ -19,6 +19,15 @@ from webdriver_manager.core.os_manager import ChromeType
 st.set_page_config(page_title="MOHRE Portal", layout="wide") 
 st.title("HAMADA TRACING SITE TEST") 
 
+# تحسين مظهر الجدول ليتسع للأسماء الطويلة
+st.markdown("""
+    <style>
+    .stDataTable td {
+        white-space: nowrap !important;
+    }
+    </style>
+    """, unsafe_allow_html=True)
+
 # --- إدارة جلسة العمل (Session State) ---
 if 'authenticated' not in st.session_state:
     st.session_state['authenticated'] = False
@@ -37,7 +46,7 @@ if 'single_result' not in st.session_state:
 if 'single_deep_done' not in st.session_state:
     st.session_state['single_deep_done'] = False
 
-# قائمة الجنسيات (محفوظة كما هي)
+# قائمة الجنسيات
 countries_list = ["Select Nationality", "Afghanistan", "Albania", "Algeria", "Andorra", "Angola", "Antigua and Barbuda", "Argentina", "Armenia", "Australia", "Austria", "Azerbaijan", "Bahamas", "Bahrain", "Bangladesh", "Barbados", "Belarus", "Belgium", "Belize", "Benin", "Bhutan", "Bolivia", "Bosnia and Herzegovina", "Botswana", "Brazil", "Brunei", "Bulgaria", "Burkina Faso", "Burundi", "Cabo Verde", "Cambodia", "Cameroon", "Canada", "Central African Republic", "Chad", "Chile", "China", "Colombia", "Comoros", "Congo (Congo-Brazzaville)", "Costa Rica", "Côte d'Ivoire", "Croatia", "Cuba", "Cyprus", "Czechia (Czech Republic)", "Democratic Republic of the Congo", "Denmark", "Djibouti", "Dominica", "Dominican Republic", "Ecuador", "Egypt", "El Salvador", "Equatorial Guinea", "Eritrea", "Estonia", "Eswatini", "Ethiopia", "Fiji", "Finland", "France", "Gabon", "Gambia", "Georgia", "Germany", "Ghana", "Greece", "Grenada", "Guatemala", "Guinea", "Guinea-Bissau", "Guyana", "Haiti", "Holy See", "Honduras", "Hungary", "Iceland", "India", "Indonesia", "Iran", "Iraq", "Ireland", "Israel", "Italy", "Jamaica", "Japan", "Jordan", "Kazakhstan", "Kenya", "Kiribati", "Kuwait", "Kyrgyzstan", "Laos", "Latvia", "Lebanon", "Lesotho", "Liberia", "Libya", "Liechtenstein", "Lithuania", "Luxembourg", "Madagascar", "Malawi", "Malaysia", "Maldives", "Mali", "Malta", "Marshall Islands", "Mauritania", "Mauritius", "Mexico", "Micronesia", "Moldova", "Monaco", "Mongolia", "Montenegro", "Morocco", "Mozambique", "Myanmar", "Namibia", "Nauru", "Nepal", "Netherlands", "New Zealand", "Nicaragua", "Niger", "Nigeria", "North Korea", "North Macedonia", "Norway", "Oman", "Pakistan", "Palau", "Palestine State", "Panama", "Papua New Guinea", "Paraguay", "Peru", "Philippines", "Poland", "Portugal", "Qatar", "Romania", "Russia", "Rwanda", "Saint Kitts and Nevis", "Saint Lucia", "Saint Vincent and the Grenadines", "Samoa", "San Marino", "Sao Tome and Principe", "Saudi Arabia", "Senegal", "Serbia", "Seychelles", "Sierra Leone", "Singapore", "Slovakia", "Slovenia", "Solomon Islands", "Somalia", "South Africa", "South Korea", "South Sudan", "Spain", "Sri Lanka", "Sudan", "Suriname", "Sweden", "Switzerland", "Syria", "Tajikistan", "Tanzania", "Thailand", "Timor-Leste", "Togo", "Tonga", "Trinidad and Tobago", "Tunisia", "Turkey", "Turkmenistan", "Tuvalu", "Uganda", "Ukraine", "United Arab Emirates", "United Kingdom", "United States of America", "Uruguay", "Uzbekistan", "Vanuatu", "Venezuela", "Vietnam", "Yemen", "Zambia", "Zimbabwe"] 
 
 # --- تسجيل الدخول ---
@@ -84,9 +93,23 @@ def setup_driver():
     driver = webdriver.Chrome(service=Service(ChromeDriverManager(chrome_type=ChromeType.CHROMIUM).install()), options=options)
     return driver
 
-def color_status(val):
-    color = '#90EE90' if val == 'Found' else '#FFCCCB'
-    return f'background-color: {color}'
+# دالة التنسيق الشرطي (الألوان)
+def apply_styling(df):
+    def color_status(val):
+        color = '#90EE90' if val == 'Found' else '#FFCCCB'
+        return f'background-color: {color}'
+
+    def color_expiry(val):
+        try:
+            # محاولة تحويل التاريخ بتنسيق DD/MM/YYYY
+            expiry_date = datetime.strptime(str(val), '%d/%m/%Y')
+            if expiry_date < datetime.now():
+                return 'color: red; font-weight: bold'
+        except:
+            pass
+        return ''
+
+    return df.style.applymap(color_status, subset=['Status']).applymap(color_expiry, subset=['Card Expiry'])
 
 # --- استخراج بيانات من الموقع الأول ---
 def extract_data(passport, nationality, dob_str):
@@ -129,7 +152,6 @@ def extract_data(passport, nationality, dob_str):
             "Date of Birth": dob_str,
             "Job Description": translate_to_english(get_value("Job Description")),
             "Card Number": card_num,
-            "Card Issue": get_value("Card Issue"),
             "Card Expiry": get_value("Card Expiry"),
             "Basic Salary": get_value("Basic Salary"),
             "Total Salary": get_value("Total Salary"),
@@ -244,7 +266,8 @@ with tab1:
         for col in ['Name', 'Est Name', 'Company Code']:
             if col not in current_df.columns:
                 current_df[col] = ''
-        styled_df = current_df.style.applymap(color_status, subset=['Status'])
+        
+        styled_df = apply_styling(current_df)
         single_table_area.dataframe(styled_df, use_container_width=True)
 
         if st.session_state.single_result.get('Status') == 'Found' and not st.session_state.single_deep_done:
@@ -263,7 +286,7 @@ with tab1:
                     st.session_state.single_deep_done = True
                 
                 current_df = pd.DataFrame([st.session_state.single_result])
-                styled_df = current_df.style.applymap(color_status, subset=['Status'])
+                styled_df = apply_styling(current_df)
                 single_table_area.dataframe(styled_df, use_container_width=True)
 
 with tab2:
@@ -306,7 +329,7 @@ with tab2:
                 if st.session_state.batch_results[i].get("Status") == "Found":
                     actual_success += 1
                 current_df = pd.DataFrame(st.session_state.batch_results)
-                styled_df = current_df.style.applymap(color_status, subset=['Status'])
+                styled_df = apply_styling(current_df)
                 live_table_area.dataframe(styled_df, use_container_width=True)
                 progress_bar.progress((i + 1) / len(df))
                 elapsed_seconds = time.time() - st.session_state.start_time_ref if st.session_state.start_time_ref else 0
@@ -330,7 +353,6 @@ with tab2:
                     "Date of Birth": dob,
                     "Job Description": "N/A",
                     "Card Number": "N/A",
-                    "Card Issue": "N/A",
                     "Card Expiry": "N/A",
                     "Basic Salary": "N/A",
                     "Total Salary": "N/A",
@@ -341,7 +363,7 @@ with tab2:
             progress_bar.progress((i + 1) / len(df))
             stats_area.markdown(f"✅ **Actual Success (Found):** {actual_success} | ⏱️ **Total Time:** {time_str}")
             current_df = pd.DataFrame(st.session_state.batch_results)
-            styled_df = current_df.style.applymap(color_status, subset=['Status'])
+            styled_df = apply_styling(current_df)
             live_table_area.dataframe(styled_df, use_container_width=True)
 
         if st.session_state.run_state == 'running' and len(st.session_state.batch_results) == len(df):
@@ -391,7 +413,7 @@ with tab2:
                         st.session_state.deep_progress = deep_idx / deep_total
                         deep_progress_bar.progress(min(1.0, st.session_state.deep_progress))
                         current_df = pd.DataFrame(st.session_state.batch_results)
-                        styled_df = current_df.style.applymap(color_status, subset=['Status'])
+                        styled_df = apply_styling(current_df)
                         live_table_area.dataframe(styled_df, use_container_width=True)
                         time.sleep(random.uniform(3, 6))
                     st.success(f"Deep Search Completed: {deep_success}/{deep_total} succeeded")
