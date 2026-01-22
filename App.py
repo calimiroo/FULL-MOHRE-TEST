@@ -56,22 +56,28 @@ def translate_to_english(text):
     except: return text
 
 def get_driver():
+    """نسخة محسنة للعمل على Streamlit Cloud بدون InvalidArgumentException"""
     options = uc.ChromeOptions()
     options.add_argument('--headless')
     options.add_argument('--no-sandbox')
     options.add_argument('--disable-dev-shm-usage')
-    # إعدادات إضافية من الكود الثاني لضمان الاستقرار
-    options.add_experimental_option("excludeSwitches", ["enable-automation"])
-    options.add_experimental_option('useAutomationExtension', False)
-    return uc.Chrome(options=options)
+    options.add_argument('--disable-gpu')
+    # ملاحظة: تم حذف experimental_options لتجنب التعارض في البيئة السحابية
+    try:
+        driver = uc.Chrome(options=options, headless=True)
+        return driver
+    except Exception as e:
+        st.error(f"Driver Initialization Error: {e}")
+        return None
 
 def color_status(val):
     color = '#90EE90' if val == 'Found' else '#FFCCCB'
     return f'background-color: {color}'
 
-# --- البحث في الموقع الأول ---
+# --- البحث في الموقع الأول (Stage 1) ---
 def extract_data(passport, nationality, dob_str):
     driver = get_driver()
+    if not driver: return None
     try:
         driver.get("https://mobile.mohre.gov.ae/Mob_Mol/MolWeb/MyContract.aspx?Service_Code=1005&lang=en")
         time.sleep(4)
@@ -116,22 +122,23 @@ def extract_data(passport, nationality, dob_str):
         try: driver.quit()
         except: pass
 
-# --- البحث العميق (تطبيق الكود الثاني الناجح) ---
+# --- البحث العميق (Stage 2 - باستخدام منطق الكود الثاني) ---
 def deep_extract_by_card(card_number):
     driver = get_driver()
+    if not driver: return None
     wait = WebDriverWait(driver, 20)
     try:
         driver.get("https://inquiry.mohre.gov.ae/")
         
-        # 1. Force English (Logic from script 2)
+        # 1. Force English
         try:
             lang_btn = wait.until(EC.presence_of_element_located((By.ID, "btnlanguage")))
             if "English" in lang_btn.text:
                 driver.execute_script("arguments[0].click();", lang_btn)
-                wait.until(EC.text_to_be_present_in_element((By.TAG_NAME, "body"), "Please select the service"))
+                time.sleep(2)
         except: pass
 
-        # 2. Dropdown Selection
+        # 2. Select Service
         dropdown = wait.until(EC.element_to_be_clickable((By.XPATH, "//*[contains(text(), 'Please select the service')]")))
         dropdown.click()
         time.sleep(1.5)
@@ -143,7 +150,7 @@ def deep_extract_by_card(card_number):
         input_box.clear()
         input_box.send_keys(card_number)
 
-        # 4. Solve Captcha (Logic from script 2)
+        # 4. Captcha Logic
         captcha_code = None
         elements = driver.find_elements(By.XPATH, "//div | //span | //b | //strong | //p")
         for el in elements:
@@ -159,32 +166,24 @@ def deep_extract_by_card(card_number):
             driver.find_element(By.XPATH, "//button[contains(text(), 'Search')]").click()
             time.sleep(5)
             
-            if "No Data Found" in driver.page_source:
-                return None
+            if "No Data Found" in driver.page_source: return None
             
-            # 5. Extraction using script 2 XPaths
+            # 5. Data Extraction
             comp_name = driver.find_element(By.XPATH, "//*[contains(text(), 'Est Name')]/..").text.replace("Est Name", "").replace(":", "").strip()
             cust_name = driver.find_element(By.XPATH, "//*[contains(text(), 'Name') and not(contains(text(), 'Est Name'))]/..").text.replace("Name", "").replace(":", "").strip()
             designation = driver.find_element(By.XPATH, "//*[contains(text(), 'Designation')]/..").text.replace("Designation", "").replace(":", "").strip()
-            
-            # محاولة جلب كود الشركة إذا وجد
             try:
                 comp_code = driver.find_element(By.XPATH, "//*[contains(text(), 'Company Code')]/..").text.replace("Company Code", "").replace(":", "").strip()
             except: comp_code = "N/A"
 
-            return {
-                'Name': cust_name,
-                'Est Name': comp_name,
-                'Company Code': comp_code,
-                'Designation': designation
-            }
+            return {'Name': cust_name, 'Est Name': comp_name, 'Company Code': comp_code, 'Designation': designation}
         return None
     except: return None
     finally:
         try: driver.quit()
         except: pass
 
-# --- واجهة المستخدم (تطابق الكود الأول تماماً) ---
+# --- الواجهة الرسومية ---
 tab1, tab2 = st.tabs(["Single Search", "Upload Excel File"]) 
 
 with tab1:
@@ -221,7 +220,6 @@ with tab2:
             st.session_state.batch_results = []
             st.session_state.start_time_ref = None
             st.session_state.deep_run_state = 'stopped'
-            st.session_state.deep_progress = 0
             st.rerun()
 
         progress_bar = st.progress(0)
@@ -233,7 +231,7 @@ with tab2:
 
         actual_success = 0
 
-        # حلقة المعالجة الأساسية
+        # حلقة المرحلة الأولى
         for i, row in df.iterrows():
             while st.session_state.run_state == 'paused':
                 status_text.warning("Paused... click Resume to continue.")
@@ -242,8 +240,7 @@ with tab2:
 
             if i < len(st.session_state.batch_results):
                 if st.session_state.batch_results[i].get("Status") == "Found": actual_success += 1
-                current_df = pd.DataFrame(st.session_state.batch_results)
-                live_table_area.dataframe(current_df.style.map(color_status, subset=['Status']), use_container_width=True)
+                live_table_area.dataframe(pd.DataFrame(st.session_state.batch_results).style.map(color_status, subset=['Status']), use_container_width=True)
                 progress_bar.progress((i + 1) / len(df))
                 continue
 
@@ -252,7 +249,7 @@ with tab2:
             try: dob = pd.to_datetime(row.get('Date of Birth')).strftime('%d/%m/%Y')
             except: dob = str(row.get('Date of Birth', ''))
 
-            status_text.info(f"Processing Stage 1: {i+1}/{len(df)}")
+            status_text.info(f"Processing Stage 1: {i+1}/{len(df)} - {p_num}")
             res = extract_data(p_num, nat, dob)
             
             if res:
@@ -269,37 +266,32 @@ with tab2:
             stats_area.markdown(f"✅ **Success:** {actual_success} | ⏱️ **Time:** `{format_time(elapsed)}`")
             live_table_area.dataframe(pd.DataFrame(st.session_state.batch_results).style.map(color_status, subset=['Status']), use_container_width=True)
 
-        # عند اكتمال المرحلة الأولى
+        # اكتمال المرحلة الأولى وظهور زر البحث العميق
         if st.session_state.run_state == 'running' and len(st.session_state.batch_results) == len(df):
-            st.success("Stage 1 Completed!")
-            
-            if st.button("🚀 Deep Search (Apply logic from script 2)"):
+            st.success("Stage 1 Finished!")
+            if st.button("🚀 Run Deep Search (Stage 2)"):
                 st.session_state.deep_run_state = 'running'
 
             if st.session_state.deep_run_state == 'running':
-                to_deep = [idx for idx, r in enumerate(st.session_state.batch_results) if r.get('Status') == 'Found']
+                to_deep = [idx for idx, r in enumerate(st.session_state.batch_results) if r.get('Status') == 'Found' and 'Name' not in r]
                 deep_total = len(to_deep)
                 
                 if deep_total > 0:
                     deep_idx = 0
-                    deep_prog = st.progress(0)
+                    d_prog = st.progress(0)
                     for idx in to_deep:
-                        rec = st.session_state.batch_results[idx]
-                        card = rec.get('Card Number')
+                        card = st.session_state.batch_results[idx].get('Card Number')
                         deep_status_area.info(f"Deep Searching {deep_idx+1}/{deep_total}: {card}")
                         
-                        deep_res = deep_extract_by_card(card)
-                        if deep_res:
-                            # تحديث البيانات بناءً على طلبك
-                            st.session_state.batch_results[idx]['Job Description'] = deep_res['Designation']
-                            st.session_state.batch_results[idx]['Name'] = deep_res['Name']
-                            st.session_state.batch_results[idx]['Est Name'] = deep_res['Est Name']
-                            st.session_state.batch_results[idx]['Company Code'] = deep_res['Company Code']
+                        d_res = deep_extract_by_card(card)
+                        if d_res:
+                            st.session_state.batch_results[idx].update(d_res)
+                            st.session_state.batch_results[idx]['Job Description'] = d_res['Designation']
                         
                         deep_idx += 1
-                        deep_prog.progress(deep_idx / deep_total)
+                        d_prog.progress(deep_idx / deep_total)
                         live_table_area.dataframe(pd.DataFrame(st.session_state.batch_results).style.map(color_status, subset=['Status']), use_container_width=True)
                     
-                    st.success("Deep Search Completed Successfully!")
-                    st.download_button("📥 Download Final Report (CSV)", pd.DataFrame(st.session_state.batch_results).to_csv(index=False).encode('utf-8'), "final_report.csv")
+                    st.success("All Stages Completed!")
+                    st.download_button("📥 Download Final Full Report", pd.DataFrame(st.session_state.batch_results).to_csv(index=False).encode('utf-8'), "MOHRE_Final_Report.csv")
                     st.session_state.deep_run_state = 'stopped'
