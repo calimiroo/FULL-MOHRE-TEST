@@ -13,6 +13,7 @@ import random
 from selenium import webdriver
 from selenium.webdriver.chrome.service import Service
 from webdriver_manager.chrome import ChromeDriverManager
+from webdriver_manager.core.os_manager import ChromeType
 
 # --- إعداد الصفحة --- 
 st.set_page_config(page_title="MOHRE Portal", layout="wide") 
@@ -70,18 +71,16 @@ def get_driver():
     options.add_argument('--headless')
     options.add_argument('--no-sandbox')
     options.add_argument('--disable-dev-shm-usage')
+    options.add_argument('--disable-gpu')
     return uc.Chrome(options=options, headless=True, use_subprocess=False)
 def setup_driver():
     options = webdriver.ChromeOptions()
     options.add_argument("--headless")
     options.add_argument("--no-sandbox")
     options.add_argument("--disable-dev-shm-usage")
-    options.add_argument("--start-maximized")
+    options.add_argument("--disable-gpu")
     options.add_argument("--lang=en-US")
-    # إخفاء هوية الأتمتة لضمان استقرار الموقع
-    options.add_experimental_option("excludeSwitches", ["enable-automation"])
-    options.add_experimental_option('useAutomationExtension', False)
-    driver = webdriver.Chrome(service=Service(ChromeDriverManager().install()), options=options)
+    driver = webdriver.Chrome(service=Service(ChromeDriverManager(chrome_type=ChromeType.CHROMIUM).install()), options=options)
     return driver
 def color_status(val):
     color = '#90EE90' if val == 'Found' else '#FFCCCB'
@@ -426,6 +425,7 @@ with tab2:
                         current_df = pd.DataFrame(st.session_state.batch_results)
                         styled_df = current_df.style.applymap(color_status, subset=['Status'])
                         live_table_area.dataframe(styled_df, use_container_width=True)
+                        time.sleep(random.uniform(3, 6))
                     st.success(f"Deep Search Completed: {deep_success}/{deep_total} succeeded")
                     # زر تحميل الملف النهائي بعد الـ Deep Search
                     final_df = pd.DataFrame(st.session_state.batch_results)
