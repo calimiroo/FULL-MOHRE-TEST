@@ -268,7 +268,7 @@ with tab1:
         single_table_area.dataframe(styled_df, use_container_width=True, hide_index=True)
 
         if st.session_state.single_result.get('Status') == 'Found' and not st.session_state.single_deep_done:
-            if st.button("Deep Search (Search cards on inquiry.mohre.gov.ae)", key="single_deep_search_button"):
+            if st.button("Deep Search", key="single_deep_search_button"):
                 with st.spinner("Deep Searching..."):
                     deep_res = deep_extract_by_card(st.session_state.single_result['Card Number'])
                     if deep_res:
@@ -378,7 +378,7 @@ with tab2:
             # زر تحميل أولي
             st.download_button("Download Full Report (CSV)", final_df.to_csv(index=False).encode('utf-8'), "full_results.csv")
             # زر البحث العميق - يظهر بعد اكتمال الـ batch
-            if st.button("Deep Search (Search cards on inquiry.mohre.gov.ae)"):
+            if st.button("Deep Search"):
                 st.session_state.deep_run_state = 'running'
                 st.session_state.deep_progress = 0
             # تنفيذ البحث العميق إذا بدأ
