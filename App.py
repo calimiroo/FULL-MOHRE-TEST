@@ -19,25 +19,17 @@ from webdriver_manager.core.os_manager import ChromeType
 st.set_page_config(page_title="MOHRE Portal", layout="wide") 
 st.title("HAMADA TRACING SITE TEST") 
 
-# --- تعديل CSS لضمان ظهور الأسماء كاملة وتعديل أبعاد الجدول ---
+# --- تعديل CSS لضمان عدم قص النصوص نهائياً ---
 st.markdown("""
     <style>
-    /* منع اختصار النص في الخلايا وجعلها تتمدد تلقائياً */
-    .stDataFrame div[data-testid="stTable"] td, 
-    .stDataFrame div[data-testid="stTable"] th {
-        white-space: nowrap !important;
-        min-width: 200px !important;
+    table {
+        width: 100% !important;
+    }
+    th, td {
         text-align: left !important;
-    }
-    
-    /* تحسين العرض في جداول st.dataframe التفاعلية */
-    section[data-testid="stTable"] div {
-        overflow-x: auto !important;
-    }
-    
-    /* إجبار الجدول على عدم ضغط المحتوى */
-    div.stDataFrame div[role="grid"] div[role="rowgroup"] > div[role="row"] > div {
-        min-width: 180px !important;
+        white-space: normal !important; /* السماح للنص بالتمدد أو الالتفاف دون قص */
+        word-wrap: break-word !important;
+        padding: 10px !important;
     }
     </style>
     """, unsafe_allow_html=True)
@@ -107,9 +99,8 @@ def setup_driver():
     driver = webdriver.Chrome(service=Service(ChromeDriverManager(chrome_type=ChromeType.CHROMIUM).install()), options=options)
     return driver
 
-# دالة التنسيق الشرطي وبدء التسلسل من الرقم 1
+# دالة التنسيق الشرطي والترقيم من 1
 def apply_styling(df):
-    # إجبار الترقيم على البدء من 1 بدلاً من صفر
     df.index = range(1, len(df) + 1)
     
     def color_status(val):
@@ -118,15 +109,13 @@ def apply_styling(df):
 
     def color_expiry(val):
         try:
-            # التحقق مما إذا كان التاريخ قد مضى مقارنة باليوم
             expiry_date = datetime.strptime(str(val), '%d/%m/%Y')
             if expiry_date < datetime.now():
-                return 'color: red; font-weight: bold'
+                return 'color: red' # اللون أحمر بدون تغليظ
         except:
             pass
         return ''
 
-    # تطبيق الألوان مع الحفاظ على الترقيم الجديد
     return df.style.applymap(color_status, subset=['Status']).applymap(color_expiry, subset=['Card Expiry'])
 
 # --- استخراج بيانات من الموقع الأول ---
@@ -221,11 +210,12 @@ def deep_extract_by_card(card_number):
                 company_code = driver.find_element(By.XPATH, "//*[contains(text(), 'Company Code')]/..").text.replace("Company Code", "").replace(":", "").strip()
             except:
                 company_code = 'Not Found'
+            # حذف Designation من القاموس المسترجع
             return {
                 'Name': cust_name if cust_name else 'Not Found',
                 'Est Name': comp_name if comp_name else 'Not Found',
                 'Company Code': company_code if company_code else 'Not Found',
-                'Designation': designation if designation else 'Not Found'
+                'Designation_Val': designation # قيمة داخلية لتحديث Job Description فقط
             }
     except Exception as e:
         return None
@@ -285,16 +275,15 @@ with tab1:
             if col not in current_df.columns:
                 current_df[col] = ''
         
-        # عرض الجدول مع تطبيق التنسيق الجديد
         styled_df = apply_styling(current_df)
-        single_table_area.dataframe(styled_df, use_container_width=True)
+        single_table_area.table(styled_df) # استخدام st.table لضمان ظهور النص كاملاً
 
         if st.session_state.single_result.get('Status') == 'Found' and not st.session_state.single_deep_done:
             if st.button("Run Deep Search", key="single_deep_search_button"):
                 with st.spinner("Deep Searching..."):
                     deep_res = deep_extract_by_card(st.session_state.single_result['Card Number'])
                     if deep_res:
-                        st.session_state.single_result['Job Description'] = deep_res.get('Designation', 'Not Found')
+                        st.session_state.single_result['Job Description'] = deep_res.get('Designation_Val', 'Not Found')
                         st.session_state.single_result['Name'] = deep_res.get('Name', 'Not Found')
                         st.session_state.single_result['Est Name'] = deep_res.get('Est Name', 'Not Found')
                         st.session_state.single_result['Company Code'] = deep_res.get('Company Code', 'Not Found')
@@ -304,10 +293,9 @@ with tab1:
                         st.session_state.single_result['Company Code'] = 'Not Found'
                     st.session_state.single_deep_done = True
                 
-                # تحديث العرض بالبيانات العميقة
                 current_df = pd.DataFrame([st.session_state.single_result])
                 styled_df = apply_styling(current_df)
-                single_table_area.dataframe(styled_df, use_container_width=True)
+                single_table_area.table(styled_df)
 
 with tab2:
     st.subheader("Batch Processing Control")
@@ -315,7 +303,6 @@ with tab2:
     
     if uploaded_file:
         df_original = pd.read_excel(uploaded_file)
-        # تعديل تسلسل عرض ملف الاكسل المرفوع ليبدأ من 1 أيضاً
         df_for_display = df_original.copy()
         df_for_display.index = range(1, len(df_for_display) + 1)
         st.write(f"Total records in file: {len(df_original)}")
@@ -356,7 +343,7 @@ with tab2:
                     actual_success += 1
                 current_df = pd.DataFrame(st.session_state.batch_results)
                 styled_df = apply_styling(current_df)
-                live_table_area.dataframe(styled_df, use_container_width=True)
+                live_table_area.table(styled_df) # استخدام st.table لعرض الأسماء كاملة
                 progress_bar.progress((i + 1) / len(df_original))
                 continue
 
@@ -391,7 +378,7 @@ with tab2:
             
             current_df = pd.DataFrame(st.session_state.batch_results)
             styled_df = apply_styling(current_df)
-            live_table_area.dataframe(styled_df, use_container_width=True)
+            live_table_area.table(styled_df) 
             progress_bar.progress((i + 1) / len(df_original))
 
         if st.session_state.run_state == 'running' and len(st.session_state.batch_results) == len(df_original):
@@ -418,13 +405,16 @@ with tab2:
                         deep_status_area.info(f"Deep Searching {deep_idx+1}/{deep_total}: {card}")
                         deep_res = deep_extract_by_card(card)
                         if deep_res:
-                            st.session_state.batch_results[idx].update(deep_res)
-                            st.session_state.batch_results[idx]['Job Description'] = deep_res.get('Designation')
+                            # تحديث البيانات وحذف Designation الزائد
+                            st.session_state.batch_results[idx]['Name'] = deep_res.get('Name')
+                            st.session_state.batch_results[idx]['Est Name'] = deep_res.get('Est Name')
+                            st.session_state.batch_results[idx]['Company Code'] = deep_res.get('Company Code')
+                            st.session_state.batch_results[idx]['Job Description'] = deep_res.get('Designation_Val')
                         deep_idx += 1
                         deep_progress_bar.progress(deep_idx / deep_total)
                         current_df = pd.DataFrame(st.session_state.batch_results)
                         styled_df = apply_styling(current_df)
-                        live_table_area.dataframe(styled_df, use_container_width=True)
+                        live_table_area.table(styled_df)
                         time.sleep(2)
                     st.success("Deep Search Completed!")
                     st.session_state.deep_run_state = 'stopped'
