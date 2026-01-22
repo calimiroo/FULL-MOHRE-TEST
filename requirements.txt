@@ -1,5 +1,6 @@
-streamlit
 pandas
+xlsxwriter
+undetected-chromedriver
 selenium
 webdriver-manager
-altair<5
+deep-translator
