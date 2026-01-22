@@ -19,11 +19,18 @@ from webdriver_manager.core.os_manager import ChromeType
 st.set_page_config(page_title="MOHRE Portal", layout="wide") 
 st.title("HAMADA TRACING SITE TEST") 
 
-# تحسين مظهر الجدول ليتسع للأسماء الطويلة
+# تحسين مظهر الجدول ليتسع للأسماء الطويلة ومنع اختصارها
 st.markdown("""
     <style>
-    .stDataTable td {
-        white-space: nowrap !important;
+    /* توسيع خلايا الجدول وإظهار النص كاملاً */
+    .stDataTable div[data-testid="stTable"] table {
+        width: 100% !important;
+    }
+    .stDataTable td, .stDataTable th {
+        white-space: normal !important;
+        word-wrap: break-word !important;
+        min-width: 150px !important;
+        max-width: 400px !important;
     }
     </style>
     """, unsafe_allow_html=True)
@@ -93,15 +100,17 @@ def setup_driver():
     driver = webdriver.Chrome(service=Service(ChromeDriverManager(chrome_type=ChromeType.CHROMIUM).install()), options=options)
     return driver
 
-# دالة التنسيق الشرطي (الألوان)
+# دالة التنسيق الشرطي والأرقام التسلسلية
 def apply_styling(df):
+    # تعديل التسلسل ليبدأ من 1
+    df.index = range(1, len(df) + 1)
+    
     def color_status(val):
         color = '#90EE90' if val == 'Found' else '#FFCCCB'
         return f'background-color: {color}'
 
     def color_expiry(val):
         try:
-            # محاولة تحويل التاريخ بتنسيق DD/MM/YYYY
             expiry_date = datetime.strptime(str(val), '%d/%m/%Y')
             if expiry_date < datetime.now():
                 return 'color: red; font-weight: bold'
