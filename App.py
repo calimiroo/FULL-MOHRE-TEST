@@ -247,7 +247,7 @@ with tab1:
     n_in = c2.selectbox("Nationality", countries_list, key="s_n")
     d_in = c3.date_input("Date of Birth", value=None, min_value=datetime(1900,1,1), key="s_d")
     
-    if st.button("Search Now"):
+    if st.button("Search Now", key="single_search_button"):
         if p_in and n_in != "Select Nationality" and d_in:
             with st.spinner("Searching..."):
                 res = extract_data(p_in, n_in, d_in.strftime("%d/%m/%Y"))
@@ -258,16 +258,18 @@ with tab1:
                     st.error("No data found.")
                     st.session_state.single_result = None
 
+    single_table_area = st.empty()
+
     if st.session_state.single_result:
         current_df = pd.DataFrame([st.session_state.single_result])
         for col in ['Name', 'Est Name', 'Company Code']:
             if col not in current_df.columns:
                 current_df[col] = ''
         styled_df = current_df.style.applymap(color_status, subset=['Status'])
-        st.dataframe(styled_df, use_container_width=True)
+        single_table_area.dataframe(styled_df, use_container_width=True)
 
         if st.session_state.single_result.get('Status') == 'Found' and not st.session_state.single_deep_done:
-            if st.button("Deep Search (Search cards on inquiry.mohre.gov.ae)"):
+            if st.button("Deep Search (Search cards on inquiry.mohre.gov.ae)", key="single_deep_search_button"):
                 with st.spinner("Deep Searching..."):
                     deep_res = deep_extract_by_card(st.session_state.single_result['Card Number'])
                     if deep_res:
@@ -281,10 +283,10 @@ with tab1:
                         st.session_state.single_result['Company Code'] = 'Not Found'
                     st.session_state.single_deep_done = True
                 
-                # Update the table live after deep search
+                # Update the table in place after deep search
                 current_df = pd.DataFrame([st.session_state.single_result])
                 styled_df = current_df.style.applymap(color_status, subset=['Status'])
-                st.dataframe(styled_df, use_container_width=True)
+                single_table_area.dataframe(styled_df, use_container_width=True)
 
 with tab2:
     st.subheader("Batch Processing Control")
