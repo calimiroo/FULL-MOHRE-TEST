@@ -20,7 +20,7 @@ from webdriver_manager.core.os_manager import ChromeType
 st.set_page_config(page_title="MOHRE Portal", layout="wide") 
 st.title("HAMADA TRACING SITE TEST") 
 
-# --- تحسين مظهر الجدول وجعله سطر واحد (No Wrap) ---
+# --- تحسين مظهر الجدول وجعله سطر واحد (No Wrap) ومنع انقسام النص ---
 st.markdown("""
     <style>
     .stTable td, .stTable th {
@@ -53,7 +53,7 @@ if 'single_result' not in st.session_state:
 if 'single_deep_done' not in st.session_state:
     st.session_state['single_deep_done'] = False
 
-# قائمة الجنسيات
+# قائمة الجنسيات الكاملة
 countries_list = ["Select Nationality", "Afghanistan", "Albania", "Algeria", "Andorra", "Angola", "Antigua and Barbuda", "Argentina", "Armenia", "Australia", "Austria", "Azerbaijan", "Bahamas", "Bahrain", "Bangladesh", "Barbados", "Belarus", "Belgium", "Belize", "Benin", "Bhutan", "Bolivia", "Bosnia and Herzegovina", "Botswana", "Brazil", "Brunei", "Bulgaria", "Burkina Faso", "Burundi", "Cabo Verde", "Cambodia", "Cameroon", "Canada", "Central African Republic", "Chad", "Chile", "China", "Colombia", "Comoros", "Congo (Congo-Brazzaville)", "Costa Rica", "Côte d'Ivoire", "Croatia", "Cuba", "Cyprus", "Czechia (Czech Republic)", "Democratic Republic of the Congo", "Denmark", "Djibouti", "Dominica", "Dominican Republic", "Ecuador", "Egypt", "El Salvador", "Equatorial Guinea", "Eritrea", "Estonia", "Eswatini", "Ethiopia", "Fiji", "Finland", "France", "Gabon", "Gambia", "Georgia", "Germany", "Ghana", "Greece", "Grenada", "Guatemala", "Guinea", "Guinea-Bissau", "Guyana", "Haiti", "Holy See", "Honduras", "Hungary", "Iceland", "India", "Indonesia", "Iran", "Iraq", "Ireland", "Israel", "Italy", "Jamaica", "Japan", "Jordan", "Kazakhstan", "Kenya", "Kiribati", "Kuwait", "Kyrgyzstan", "Laos", "Latvia", "Lebanon", "Lesotho", "Liberia", "Libya", "Liechtenstein", "Lithuania", "Luxembourg", "Madagascar", "Malawi", "Malaysia", "Maldives", "Mali", "Malta", "Marshall Islands", "Mauritania", "Mauritius", "Mexico", "Micronesia", "Moldova", "Monaco", "Mongolia", "Montenegro", "Morocco", "Mozambique", "Myanmar", "Namibia", "Nauru", "Nepal", "Netherlands", "New Zealand", "Nicaragua", "Niger", "Nigeria", "North Korea", "North Macedonia", "Norway", "Oman", "Pakistan", "Palau", "Palestine State", "Panama", "Papua New Guinea", "Paraguay", "Peru", "Philippines", "Poland", "Portugal", "Qatar", "Romania", "Russia", "Rwanda", "Saint Kitts and Nevis", "Saint Lucia", "Saint Vincent and the Grenadines", "Samoa", "San Marino", "Sao Tome and Principe", "Saudi Arabia", "Senegal", "Serbia", "Seychelles", "Sierra Leone", "Singapore", "Slovakia", "Slovenia", "Solomon Islands", "Somalia", "South Africa", "South Korea", "South Sudan", "Spain", "Sri Lanka", "Sudan", "Suriname", "Sweden", "Switzerland", "Syria", "Tajikistan", "Tanzania", "Thailand", "Timor-Leste", "Togo", "Tonga", "Trinidad and Tobago", "Tunisia", "Turkey", "Turkmenistan", "Tuvalu", "Uganda", "Ukraine", "United Arab Emirates", "United Kingdom", "United States of America", "Uruguay", "Uzbekistan", "Vanuatu", "Venezuela", "Vietnam", "Yemen", "Zambia", "Zimbabwe"] 
 
 # --- تسجيل الدخول ---
@@ -125,7 +125,9 @@ def apply_styling(df):
             pass
         return ''
 
-    return df_styled.style.applymap(color_status, subset=['Status']).applymap(color_expiry, subset=['Card Expiry'])
+    # إخفاء عمود Designation تماماً في العرض
+    cols_to_show = [c for c in df_styled.columns if c != 'Designation']
+    return df_styled[cols_to_show].style.applymap(color_status, subset=['Status']).applymap(color_expiry, subset=['Card Expiry'])
 
 # --- استخراج بيانات من الموقع الأول ---
 def extract_data(passport, nationality, dob_str):
@@ -152,6 +154,7 @@ def extract_data(passport, nationality, dob_str):
         driver.execute_script("arguments[0].dispatchEvent(new Event('change'));", dob_input)
         driver.find_element(By.ID, "btnSubmit").click()
         time.sleep(8)
+        
         def get_value(label):
             try:
                 xpath = f"//span[contains(text(), '{label}')]/following::span[1] | //label[contains(text(), '{label}')]/following-sibling::div"
@@ -159,9 +162,11 @@ def extract_data(passport, nationality, dob_str):
                 return val if val else 'Not Found'
             except:
                 return 'Not Found'
+        
         card_num = get_value("Card Number")
         if card_num == 'Not Found':
             return None
+            
         return {
             "Passport Number": passport,
             "Nationality": nationality,
@@ -245,6 +250,7 @@ with tab1:
     c1, c2, c3 = st.columns(3)
     p_in = c1.text_input("Passport Number", key="s_p")
     n_in = c2.selectbox("Nationality", countries_list, key="s_n")
+    # التعديل المطلوب: التاريخ بتنسيق DD/MM/YYYY
     d_in = c3.date_input("Date of Birth", value=None, min_value=datetime(1900,1,1), format="DD/MM/YYYY", key="s_d")
     
     if st.button("Search Now", key="single_search_button"):
@@ -265,13 +271,15 @@ with tab1:
         st.table(apply_styling(df_temp))
 
         if st.session_state.single_result.get('Status') == 'Found' and not st.session_state.single_deep_done:
-            if st.button("🚀 Run Deep Search"):
+            if st.button("🚀 Run Deep Search", key="btn_deep_single"):
                 with st.spinner("Deep Searching..."):
                     deep_res = deep_extract_by_card(st.session_state.single_result['Card Number'])
                     if deep_res:
                         st.session_state.single_result.update({
-                            'Job Description': deep_res['Job_Deep'], 'Name': deep_res['Name'],
-                            'Est Name': deep_res['Est Name'], 'Company Code': deep_res['Company Code']
+                            'Job Description': deep_res['Job_Deep'], 
+                            'Name': deep_res['Name'],
+                            'Est Name': deep_res['Est Name'], 
+                            'Company Code': deep_res['Company Code']
                         })
                     st.session_state.single_deep_done = True
                 st.rerun()
@@ -282,7 +290,7 @@ with tab2:
     
     if uploaded_file:
         df_original = pd.read_excel(uploaded_file)
-        st.write(f"Total records: {len(df_original)}")
+        st.write(f"Total records in file: {len(df_original)}")
         
         col_ctrl1, col_ctrl2, col_ctrl3 = st.columns(3)
         if col_ctrl1.button("▶️ Start / Resume"):
@@ -300,6 +308,7 @@ with tab2:
         stats_area = st.empty()
         live_table_area = st.empty()
         
+        # المرحلة الأولى: استخراج البيانات الأساسية
         for i, row in df_original.iterrows():
             while st.session_state.run_state == 'paused':
                 status_text.warning("Paused...")
@@ -330,10 +339,14 @@ with tab2:
             live_table_area.table(apply_styling(pd.DataFrame(st.session_state.batch_results)))
             progress_bar.progress((i + 1) / len(df_original))
 
+        # عند انتهاء المرحلة الأولى
         if len(st.session_state.batch_results) == len(df_original) and len(st.session_state.batch_results) > 0:
             st.success("Stage 1 Finished!")
-            # زر تحميل النتيجة الأولى
-            st.download_button("📥 Download Stage 1 Results", data=to_excel(pd.DataFrame(st.session_state.batch_results)), file_name="stage1_results.xlsx")
+            
+            # إعداد ملف المرحلة الأولى للتحميل
+            df_stage1 = pd.DataFrame(st.session_state.batch_results)
+            excel_data1 = to_excel(df_stage1)
+            st.download_button("📥 Download Stage 1 Results", data=excel_data1, file_name="stage1_results.xlsx", key="dl_stage1")
             
             if st.button("🚀 Run Deep Search (Stage 2)"):
                 st.session_state.deep_run_state = 'running'
@@ -341,18 +354,25 @@ with tab2:
             if st.session_state.deep_run_state == 'running':
                 deep_bar = st.progress(0)
                 deep_recs = [idx for idx, r in enumerate(st.session_state.batch_results) if r.get('Status') == 'Found']
+                
                 for d_idx, idx in enumerate(deep_recs):
                     card = st.session_state.batch_results[idx]['Card Number']
-                    st.write(f"Deep Searching {d_idx+1}/{len(deep_recs)}: {card}")
+                    status_text.info(f"Deep Searching {d_idx+1}/{len(deep_recs)}: {card}")
                     d_res = deep_extract_by_card(card)
                     if d_res:
                         st.session_state.batch_results[idx].update({
-                            'Name': d_res['Name'], 'Est Name': d_res['Est Name'],
-                            'Company Code': d_res['Company Code'], 'Job Description': d_res['Job_Deep']
+                            'Name': d_res['Name'], 
+                            'Est Name': d_res['Est Name'],
+                            'Company Code': d_res['Company Code'], 
+                            'Job Description': d_res['Job_Deep']
                         })
                     deep_bar.progress((d_idx + 1) / len(deep_recs))
                     live_table_area.table(apply_styling(pd.DataFrame(st.session_state.batch_results)))
+                
                 st.success("Deep Search Completed!")
-                # زر تحميل النتيجة الثانية
-                st.download_button("📥 Download Stage 2 Results (Final)", data=to_excel(pd.DataFrame(st.session_state.batch_results)), file_name="final_deep_results.xlsx")
+                
+                # إعداد ملف المرحلة الثانية للتحميل
+                df_stage2 = pd.DataFrame(st.session_state.batch_results)
+                excel_data2 = to_excel(df_stage2)
+                st.download_button("📥 Download Stage 2 Results (Final)", data=excel_data2, file_name="final_deep_results.xlsx", key="dl_stage2")
                 st.session_state.deep_run_state = 'stopped'
