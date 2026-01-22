@@ -19,17 +19,19 @@ from webdriver_manager.core.os_manager import ChromeType
 st.set_page_config(page_title="MOHRE Portal", layout="wide") 
 st.title("HAMADA TRACING SITE TEST") 
 
-# --- تعديل CSS لضمان عدم قص النصوص نهائياً ---
+# --- تحسين مظهر الجدول وجعله سطر واحد (No Wrap) ---
 st.markdown("""
     <style>
-    table {
-        width: 100% !important;
-    }
-    th, td {
+    /* جعل الجدول يظهر النص على سطر واحد بدون انقسام */
+    .stTable td, .stTable th {
+        white-space: nowrap !important;
         text-align: left !important;
-        white-space: normal !important; /* السماح للنص بالتمدد أو الالتفاف دون قص */
-        word-wrap: break-word !important;
-        padding: 10px !important;
+        padding: 8px 15px !important;
+    }
+    /* إضافة شريط تمرير أفقي إذا كان الجدول أعرض من الشاشة */
+    .stTable {
+        display: block !important;
+        overflow-x: auto !important;
     }
     </style>
     """, unsafe_allow_html=True)
@@ -99,7 +101,7 @@ def setup_driver():
     driver = webdriver.Chrome(service=Service(ChromeDriverManager(chrome_type=ChromeType.CHROMIUM).install()), options=options)
     return driver
 
-# دالة التنسيق الشرطي والترقيم من 1
+# دالة التنسيق والترقيم من 1
 def apply_styling(df):
     df.index = range(1, len(df) + 1)
     
@@ -111,7 +113,7 @@ def apply_styling(df):
         try:
             expiry_date = datetime.strptime(str(val), '%d/%m/%Y')
             if expiry_date < datetime.now():
-                return 'color: red' # اللون أحمر بدون تغليظ
+                return 'color: red' # اللون أحمر بدون تغليظ (Bold)
         except:
             pass
         return ''
@@ -210,12 +212,12 @@ def deep_extract_by_card(card_number):
                 company_code = driver.find_element(By.XPATH, "//*[contains(text(), 'Company Code')]/..").text.replace("Company Code", "").replace(":", "").strip()
             except:
                 company_code = 'Not Found'
-            # حذف Designation من القاموس المسترجع
+            # تم حذف Designation من العرض هنا أيضاً
             return {
                 'Name': cust_name if cust_name else 'Not Found',
                 'Est Name': comp_name if comp_name else 'Not Found',
                 'Company Code': company_code if company_code else 'Not Found',
-                'Designation_Val': designation # قيمة داخلية لتحديث Job Description فقط
+                'Job_Deep': designation 
             }
     except Exception as e:
         return None
@@ -272,25 +274,22 @@ with tab1:
     if st.session_state.single_result:
         current_df = pd.DataFrame([st.session_state.single_result])
         for col in ['Name', 'Est Name', 'Company Code']:
-            if col not in current_df.columns:
-                current_df[col] = ''
+            if col not in current_df.columns: current_df[col] = ''
         
         styled_df = apply_styling(current_df)
-        single_table_area.table(styled_df) # استخدام st.table لضمان ظهور النص كاملاً
+        single_table_area.table(styled_df) # عرض الجدول بنمط سطر واحد
 
         if st.session_state.single_result.get('Status') == 'Found' and not st.session_state.single_deep_done:
-            if st.button("Run Deep Search", key="single_deep_search_button"):
+            if st.button("Run Deep Search"):
                 with st.spinner("Deep Searching..."):
                     deep_res = deep_extract_by_card(st.session_state.single_result['Card Number'])
                     if deep_res:
-                        st.session_state.single_result['Job Description'] = deep_res.get('Designation_Val', 'Not Found')
+                        st.session_state.single_result['Job Description'] = deep_res.get('Job_Deep', 'Not Found')
                         st.session_state.single_result['Name'] = deep_res.get('Name', 'Not Found')
                         st.session_state.single_result['Est Name'] = deep_res.get('Est Name', 'Not Found')
                         st.session_state.single_result['Company Code'] = deep_res.get('Company Code', 'Not Found')
                     else:
                         st.session_state.single_result['Name'] = 'Not Found'
-                        st.session_state.single_result['Est Name'] = 'Not Found'
-                        st.session_state.single_result['Company Code'] = 'Not Found'
                     st.session_state.single_deep_done = True
                 
                 current_df = pd.DataFrame([st.session_state.single_result])
@@ -303,24 +302,20 @@ with tab2:
     
     if uploaded_file:
         df_original = pd.read_excel(uploaded_file)
-        df_for_display = df_original.copy()
-        df_for_display.index = range(1, len(df_for_display) + 1)
-        st.write(f"Total records in file: {len(df_original)}")
-        st.dataframe(df_for_display, height=150, use_container_width=True)
+        df_show = df_original.copy()
+        df_show.index = range(1, len(df_show) + 1)
+        st.write(f"Total records: {len(df_original)}")
+        st.dataframe(df_show, height=150, use_container_width=True)
         
         col_ctrl1, col_ctrl2, col_ctrl3 = st.columns(3)
         if col_ctrl1.button("▶️ Start / Resume"):
             st.session_state.run_state = 'running'
-            if st.session_state.start_time_ref is None:
-                st.session_state.start_time_ref = time.time()
-        if col_ctrl2.button("⏸️ Pause"):
-            st.session_state.run_state = 'paused'
+            if st.session_state.start_time_ref is None: st.session_state.start_time_ref = time.time()
+        if col_ctrl2.button("⏸️ Pause"): st.session_state.run_state = 'paused'
         if col_ctrl3.button("⏹️ Stop & Reset"):
             st.session_state.run_state = 'stopped'
             st.session_state.batch_results = []
             st.session_state.start_time_ref = None
-            st.session_state.deep_run_state = 'stopped'
-            st.session_state.deep_progress = 0
             st.rerun()
 
         progress_bar = st.progress(0)
@@ -333,26 +328,21 @@ with tab2:
         
         for i, row in df_original.iterrows():
             while st.session_state.run_state == 'paused':
-                status_text.warning("Paused... click Resume to continue.")
+                status_text.warning("Paused...")
                 time.sleep(1)
-            if st.session_state.run_state == 'stopped':
-                break
+            if st.session_state.run_state == 'stopped': break
             
             if i < len(st.session_state.batch_results):
-                if st.session_state.batch_results[i].get("Status") == "Found":
-                    actual_success += 1
+                if st.session_state.batch_results[i].get("Status") == "Found": actual_success += 1
                 current_df = pd.DataFrame(st.session_state.batch_results)
-                styled_df = apply_styling(current_df)
-                live_table_area.table(styled_df) # استخدام st.table لعرض الأسماء كاملة
+                live_table_area.table(apply_styling(current_df))
                 progress_bar.progress((i + 1) / len(df_original))
                 continue
 
             p_num = str(row.get('Passport Number', '')).strip()
             nat = str(row.get('Nationality', 'Egypt')).strip()
-            try:
-                dob = pd.to_datetime(row.get('Date of Birth')).strftime('%d/%m/%Y')
-            except:
-                dob = str(row.get('Date of Birth', ''))
+            try: dob = pd.to_datetime(row.get('Date of Birth')).strftime('%d/%m/%Y')
+            except: dob = str(row.get('Date of Birth', ''))
                 
             status_text.info(f"Processing {i+1}/{len(df_original)}: {p_num}")
             res = extract_data(p_num, nat, dob)
@@ -362,59 +352,40 @@ with tab2:
                 st.session_state.batch_results.append(res)
             else:
                 st.session_state.batch_results.append({
-                    "Passport Number": p_num,
-                    "Nationality": nat,
-                    "Date of Birth": dob,
-                    "Job Description": "N/A",
-                    "Card Number": "N/A",
-                    "Card Expiry": "N/A",
-                    "Basic Salary": "N/A",
-                    "Total Salary": "N/A",
-                    "Status": "Not Found"
+                    "Passport Number": p_num, "Nationality": nat, "Date of Birth": dob,
+                    "Job Description": "N/A", "Card Number": "N/A", "Card Expiry": "N/A",
+                    "Basic Salary": "N/A", "Total Salary": "N/A", "Status": "Not Found"
                 })
                 
-            elapsed_seconds = time.time() - st.session_state.start_time_ref if st.session_state.start_time_ref else 0
-            stats_area.markdown(f"✅ **Actual Success (Found):** {actual_success} | ⏱️ **Total Time:** {format_time(elapsed_seconds)}")
+            elapsed = time.time() - st.session_state.start_time_ref if st.session_state.start_time_ref else 0
+            stats_area.markdown(f"✅ **Success:** {actual_success} | ⏱️ **Time:** {format_time(elapsed)}")
             
             current_df = pd.DataFrame(st.session_state.batch_results)
-            styled_df = apply_styling(current_df)
-            live_table_area.table(styled_df) 
+            live_table_area.table(apply_styling(current_df))
             progress_bar.progress((i + 1) / len(df_original))
 
         if st.session_state.run_state == 'running' and len(st.session_state.batch_results) == len(df_original):
             st.success("Stage 1 Finished!")
-            final_df = pd.DataFrame(st.session_state.batch_results)
-            for col in ['Name', 'Est Name', 'Company Code']:
-                if col not in final_df.columns:
-                    final_df[col] = ''
-            
             if st.button("🚀 Run Deep Search (Stage 2)"):
                 st.session_state.deep_run_state = 'running'
-                st.session_state.deep_progress = 0
             
             if st.session_state.deep_run_state == 'running':
                 deep_recs = [r for r in st.session_state.batch_results if r.get('Status') == 'Found']
                 deep_total = len(deep_recs)
-                if deep_total == 0:
-                    st.info("No records to Deep Search.")
-                else:
-                    deep_idx = 0
-                    for idx, rec in enumerate(st.session_state.batch_results):
-                        if rec.get('Status') != 'Found': continue
-                        card = rec.get('Card Number')
-                        deep_status_area.info(f"Deep Searching {deep_idx+1}/{deep_total}: {card}")
-                        deep_res = deep_extract_by_card(card)
-                        if deep_res:
-                            # تحديث البيانات وحذف Designation الزائد
-                            st.session_state.batch_results[idx]['Name'] = deep_res.get('Name')
-                            st.session_state.batch_results[idx]['Est Name'] = deep_res.get('Est Name')
-                            st.session_state.batch_results[idx]['Company Code'] = deep_res.get('Company Code')
-                            st.session_state.batch_results[idx]['Job Description'] = deep_res.get('Designation_Val')
-                        deep_idx += 1
-                        deep_progress_bar.progress(deep_idx / deep_total)
-                        current_df = pd.DataFrame(st.session_state.batch_results)
-                        styled_df = apply_styling(current_df)
-                        live_table_area.table(styled_df)
-                        time.sleep(2)
-                    st.success("Deep Search Completed!")
-                    st.session_state.deep_run_state = 'stopped'
+                deep_idx = 0
+                for idx, rec in enumerate(st.session_state.batch_results):
+                    if rec.get('Status') != 'Found': continue
+                    card = rec.get('Card Number')
+                    deep_status_area.info(f"Deep Searching {deep_idx+1}/{deep_total}: {card}")
+                    deep_res = deep_extract_by_card(card)
+                    if deep_res:
+                        st.session_state.batch_results[idx]['Name'] = deep_res.get('Name')
+                        st.session_state.batch_results[idx]['Est Name'] = deep_res.get('Est Name')
+                        st.session_state.batch_results[idx]['Company Code'] = deep_res.get('Company Code')
+                        st.session_state.batch_results[idx]['Job Description'] = deep_res.get('Job_Deep')
+                    deep_idx += 1
+                    deep_progress_bar.progress(deep_idx / deep_total)
+                    live_table_area.table(apply_styling(pd.DataFrame(st.session_state.batch_results)))
+                    time.sleep(2)
+                st.success("Deep Search Completed!")
+                st.session_state.deep_run_state = 'stopped'
