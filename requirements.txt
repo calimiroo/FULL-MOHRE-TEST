@@ -1,8 +1,5 @@
 streamlit
 pandas
-undetected-chromedriver
 selenium
 webdriver-manager
-deep-translator
-xlsxwriter
-setuptools
+altair<5
