@@ -20,7 +20,7 @@ from webdriver_manager.core.os_manager import ChromeType
 st.set_page_config(page_title="MOHRE Portal", layout="wide") 
 st.title("HAMADA TRACING SITE TEST") 
 
-# --- تحسين مظهر الجدول وجعله سطر واحد ---
+# --- تحسين مظهر الجدول ---
 st.markdown("""
     <style>
     .stTable td, .stTable th {
@@ -78,23 +78,31 @@ def format_time(seconds):
     return str(timedelta(seconds=int(seconds)))
 
 def apply_styling(df):
-    df_styled = df.copy()
-    df_styled.index = range(1, len(df_styled) + 1)
+    # تنظيف البيانات من قيم NaN قبل العرض
+    df_clean = df.fillna('')
+    df_clean.index = range(1, len(df_clean) + 1)
+    
     def color_status(val):
-        return f'background-color: {"#90EE90" if val == "Found" else "#FFCCCB"}'
+        color = '#90EE90' if val == 'Found' else '#FFCCCB'
+        return f'background-color: {color}'
+        
     def color_expiry(val):
         try:
-            if datetime.strptime(str(val), '%d/%m/%Y') < datetime.now(): return 'color: red'
+            if val and datetime.strptime(str(val), '%d/%m/%Y') < datetime.now():
+                return 'color: red'
         except: pass
         return ''
-    return df_styled.style.applymap(color_status, subset=['Status']).applymap(color_expiry, subset=['Card Expiry'])
+        
+    return df_clean.style.applymap(color_status, subset=['Status']).applymap(color_expiry, subset=['Card Expiry'] if 'Card Expiry' in df_clean.columns else [])
 
 def get_driver():
     options = uc.ChromeOptions()
     options.add_argument('--headless')
     options.add_argument('--no-sandbox')
     options.add_argument('--disable-dev-shm-usage')
-    return uc.Chrome(options=options, use_subprocess=False)
+    options.add_argument('--window-size=1920,1080')
+    # تشغيل بدون subprocess لتجنب مشاكل الصلاحيات في Streamlit Cloud
+    return uc.Chrome(options=options, headless=True, use_subprocess=False)
 
 def setup_driver():
     options = webdriver.ChromeOptions()
@@ -109,28 +117,34 @@ def extract_data(passport, nationality, dob_str):
     driver = get_driver()
     try:
         driver.get("https://mobile.mohre.gov.ae/Mob_Mol/MolWeb/MyContract.aspx?Service_Code=1005&lang=en")
-        time.sleep(4)
-        driver.find_element(By.ID, "txtPassportNumber").send_keys(passport)
+        wait = WebDriverWait(driver, 15)
+        wait.until(EC.presence_of_element_located((By.ID, "txtPassportNumber"))).send_keys(passport)
         driver.find_element(By.ID, "CtrlNationality_txtDescription").click()
         time.sleep(1)
         try:
             search_box = driver.find_element(By.CSS_SELECTOR, "#ajaxSearchBoxModal .form-control")
             search_box.send_keys(nationality)
-            time.sleep(1)
+            time.sleep(1.5)
             items = driver.find_elements(By.CSS_SELECTOR, "#ajaxSearchBoxModal .items li a")
             if items: items[0].click()
         except: pass
+        
         dob_input = driver.find_element(By.ID, "txtBirthDate")
         driver.execute_script("arguments[0].removeAttribute('readonly');", dob_input)
         dob_input.clear()
         dob_input.send_keys(dob_str)
         driver.find_element(By.ID, "btnSubmit").click()
         time.sleep(8)
+        
         def gv(label):
-            try: return driver.find_element(By.XPATH, f"//span[contains(text(), '{label}')]/following::span[1]").text.strip()
+            try:
+                xpath = f"//span[contains(text(), '{label}')]/following::span[1]"
+                return driver.find_element(By.XPATH, xpath).text.strip()
             except: return 'Not Found'
+            
         card = gv("Card Number")
         if card == 'Not Found': return None
+        
         return {
             "Passport Number": passport, "Nationality": nationality, "Date of Birth": dob_str,
             "Job Description": GoogleTranslator(source='auto', target='en').translate(gv("Job Description")),
@@ -138,17 +152,52 @@ def extract_data(passport, nationality, dob_str):
             "Basic Salary": gv("Basic Salary"), "Total Salary": gv("Total Salary"), "Status": "Found"
         }
     except: return None
-    finally: driver.quit()
+    finally:
+        try: driver.quit()
+        except: pass
+
+def solve_captcha(driver):
+    try:
+        elements = driver.find_elements(By.XPATH, "//div | //span | //b | //strong")
+        for el in elements:
+            txt = el.text.strip()
+            if re.match(r'^\d{4}$', txt): return txt
+    except: pass
+    return None
 
 def deep_extract_by_card(card_number):
     driver = setup_driver()
     try:
         driver.get("https://inquiry.mohre.gov.ae/")
-        # هنا يتم استدعاء كود البحث العميق (Force English + Captcha Solve)
-        time.sleep(5)
-        return {'Name': 'FOUND NAME', 'Est Name': 'FOUND EST', 'Company Code': '123', 'Job_Deep': 'MANAGER'}
+        wait = WebDriverWait(driver, 20)
+        # فرض اللغة الإنجليزية
+        try:
+            lang_btn = wait.until(EC.element_to_be_clickable((By.ID, "btnlanguage")))
+            if "English" in lang_btn.text: lang_btn.click()
+        except: pass
+        
+        dropdown = wait.until(EC.element_to_be_clickable((By.XPATH, "//*[contains(text(), 'Please select the service')]")))
+        dropdown.click()
+        time.sleep(1)
+        wait.until(EC.element_to_be_clickable((By.XPATH, "//*[contains(text(), 'Electronic Work Permit Information')]"))).click()
+        
+        inp = wait.until(EC.visibility_of_element_located((By.XPATH, "//input[@placeholder='Enter data here']")))
+        inp.send_keys(card_number)
+        
+        code = solve_captcha(driver)
+        if code:
+            driver.find_element(By.XPATH, "//input[contains(@placeholder, 'captcha')]").send_keys(code)
+            driver.find_element(By.XPATH, "//button[contains(text(), 'Search')]").click()
+            time.sleep(5)
+            
+            comp = driver.find_element(By.XPATH, "//*[contains(text(), 'Est Name')]/..").text.replace("Est Name", "").replace(":", "").strip()
+            cust = driver.find_element(By.XPATH, "//*[contains(text(), 'Name') and not(contains(text(), 'Est Name'))]/..").text.replace("Name", "").replace(":", "").strip()
+            code_c = driver.find_element(By.XPATH, "//*[contains(text(), 'Company Code')]/..").text.replace("Company Code", "").replace(":", "").strip()
+            return {'Name': cust, 'Est Name': comp, 'Company Code': code_c}
     except: return None
-    finally: driver.quit()
+    finally:
+        try: driver.quit()
+        except: pass
 
 # --- واجهة المستخدم ---
 tab1, tab2 = st.tabs(["Single Search", "Upload Excel File"]) 
@@ -160,48 +209,58 @@ with tab1:
     n_in = c2.selectbox("Nationality", countries_list, key="s_n")
     d_in = c3.date_input("Date of Birth", value=None, format="DD/MM/YYYY", key="s_d")
     
-    if st.button("Search Now"):
-        with st.spinner("Searching..."):
-            res = extract_data(p_in, n_in, d_in.strftime("%d/%m/%Y"))
-            st.session_state.single_result = res
-            st.session_state.single_deep_done = False
+    if st.button("Search Now", key="btn_single"):
+        if p_in and n_in != "Select Nationality":
+            with st.spinner("Searching..."):
+                res = extract_data(p_in, n_in, d_in.strftime("%d/%m/%Y"))
+                st.session_state.single_result = res
+                st.session_state.single_deep_done = False
 
     if st.session_state.single_result:
         st.table(apply_styling(pd.DataFrame([st.session_state.single_result])))
+        if st.button("Run Deep Search for this Person"):
+            with st.spinner("Deep Searching..."):
+                d_res = deep_extract_by_card(st.session_state.single_result['Card Number'])
+                if d_res:
+                    st.session_state.single_result.update(d_res)
+                    st.rerun()
 
 with tab2:
-    st.subheader("Batch Processing")
-    uploaded_file = st.file_uploader("Upload Excel", type=["xlsx"]) 
+    st.subheader("Batch Processing Control")
+    up = st.file_uploader("Upload Excel", type=["xlsx"]) 
     
-    if uploaded_file:
-        df_orig = pd.read_excel(uploaded_file)
+    if up:
+        df_orig = pd.read_excel(up)
         col_ctrl1, col_ctrl2, col_ctrl3 = st.columns(3)
-        if col_ctrl1.button("▶️ Start"): st.session_state.run_state = 'running'
+        if col_ctrl1.button("▶️ Start / Resume"): st.session_state.run_state = 'running'
         if col_ctrl2.button("⏸️ Pause"): st.session_state.run_state = 'paused'
-        if col_ctrl3.button("⏹️ Reset"):
+        if col_ctrl3.button("⏹️ Stop & Reset"):
             st.session_state.run_state = 'stopped'
             st.session_state.batch_results = []
             st.session_state.deep_finished = False
             st.rerun()
 
-        progress_bar = st.progress(0)
+        prog = st.progress(0)
         table_area = st.empty()
         
         for i, row in df_orig.iterrows():
-            if st.session_state.run_state != 'running' or i < len(st.session_state.batch_results): continue
+            if st.session_state.run_state != 'running' or i < len(st.session_state.batch_results):
+                continue
+            
             p = str(row.get('Passport Number', ''))
             n = str(row.get('Nationality', ''))
             try: d = pd.to_datetime(row.get('Date of Birth')).strftime('%d/%m/%Y')
             except: d = str(row.get('Date of Birth', ''))
             
             res = extract_data(p, n, d)
-            st.session_state.batch_results.append(res if res else {"Passport Number": p, "Status": "Not Found"})
+            st.session_state.batch_results.append(res if res else {"Passport Number": p, "Nationality": n, "Date of Birth": d, "Status": "Not Found"})
+            
             table_area.table(apply_styling(pd.DataFrame(st.session_state.batch_results)))
-            progress_bar.progress((i + 1) / len(df_orig))
+            prog.progress((i + 1) / len(df_orig))
 
         if len(st.session_state.batch_results) == len(df_orig) and len(df_orig) > 0:
             st.success("Stage 1 Finished!")
-            st.download_button("📥 Download Stage 1", data=to_excel(pd.DataFrame(st.session_state.batch_results)), file_name="stage1.xlsx", key="btn_s1")
+            st.download_button("📥 Download Stage 1", data=to_excel(pd.DataFrame(st.session_state.batch_results)), file_name="stage1.xlsx")
 
             if not st.session_state.deep_finished:
                 if st.button("🚀 Run Deep Search (Stage 2)"):
@@ -212,9 +271,16 @@ with tab2:
                     if item.get('Status') == 'Found' and 'Name' not in item:
                         d_res = deep_extract_by_card(item['Card Number'])
                         if d_res: st.session_state.batch_results[idx].update(d_res)
+                        table_area.table(apply_styling(pd.DataFrame(st.session_state.batch_results)))
                 st.session_state.deep_run_state = 'stopped'
                 st.session_state.deep_finished = True
                 st.rerun()
 
+            # زر التحميل الثابت للمرحلة الثانية
             if st.session_state.deep_finished:
-                st.download_button("📥 Download Deep Search Results", data=to_excel(pd.DataFrame(st.session_state.batch_results)), file_name="deep_results.xlsx", key="btn_s2")
+                st.download_button(
+                    label="📥 Download Deep Search Results",
+                    data=to_excel(pd.DataFrame(st.session_state.batch_results)),
+                    file_name="deep_search_results.xlsx",
+                    key="dl_final_fixed"
+                )
