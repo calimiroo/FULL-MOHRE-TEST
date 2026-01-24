@@ -1,8 +1,3 @@
-streamlit
-pandas
-undetected-chromedriver
-selenium
-webdriver-manager
-deep-translator
-xlsxwriter
 setuptools
+packaging
+undetected-chromedriver
