@@ -78,12 +78,12 @@ def format_time(seconds):
     return str(timedelta(seconds=int(seconds)))
 
 def apply_styling(df):
-    # تنظيف البيانات من قيم NaN قبل العرض
+    # تعبئة القيم المفقودة بنصوص فارغة لمنع ظهور nan
     df_clean = df.fillna('')
     df_clean.index = range(1, len(df_clean) + 1)
     
     def color_status(val):
-        color = '#90EE90' if val == 'Found' else '#FFCCCB'
+        color = '#90EE90' if val == 'Found' else '#FFCCCB' if val == 'Not Found' else 'white'
         return f'background-color: {color}'
         
     def color_expiry(val):
@@ -101,7 +101,7 @@ def get_driver():
     options.add_argument('--no-sandbox')
     options.add_argument('--disable-dev-shm-usage')
     options.add_argument('--window-size=1920,1080')
-    # تشغيل بدون subprocess لتجنب مشاكل الصلاحيات في Streamlit Cloud
+    # تشغيل بدون subprocess لتوافق أعلى مع Streamlit Cloud
     return uc.Chrome(options=options, headless=True, use_subprocess=False)
 
 def setup_driver():
@@ -140,10 +140,10 @@ def extract_data(passport, nationality, dob_str):
             try:
                 xpath = f"//span[contains(text(), '{label}')]/following::span[1]"
                 return driver.find_element(By.XPATH, xpath).text.strip()
-            except: return 'Not Found'
+            except: return 'N/A'
             
         card = gv("Card Number")
-        if card == 'Not Found': return None
+        if card == 'N/A' or card == '': return None
         
         return {
             "Passport Number": passport, "Nationality": nationality, "Date of Birth": dob_str,
@@ -170,7 +170,6 @@ def deep_extract_by_card(card_number):
     try:
         driver.get("https://inquiry.mohre.gov.ae/")
         wait = WebDriverWait(driver, 20)
-        # فرض اللغة الإنجليزية
         try:
             lang_btn = wait.until(EC.element_to_be_clickable((By.ID, "btnlanguage")))
             if "English" in lang_btn.text: lang_btn.click()
@@ -253,7 +252,7 @@ with tab2:
             except: d = str(row.get('Date of Birth', ''))
             
             res = extract_data(p, n, d)
-            st.session_state.batch_results.append(res if res else {"Passport Number": p, "Nationality": n, "Date of Birth": d, "Status": "Not Found"})
+            st.session_state.batch_results.append(res if res else {"Passport Number": p, "Nationality": n, "Date of Birth": d, "Job Description": "N/A", "Card Number": "N/A", "Card Expiry": "N/A", "Basic Salary": "N/A", "Total Salary": "N/A", "Status": "Not Found"})
             
             table_area.table(apply_styling(pd.DataFrame(st.session_state.batch_results)))
             prog.progress((i + 1) / len(df_orig))
@@ -276,11 +275,10 @@ with tab2:
                 st.session_state.deep_finished = True
                 st.rerun()
 
-            # زر التحميل الثابت للمرحلة الثانية
             if st.session_state.deep_finished:
                 st.download_button(
                     label="📥 Download Deep Search Results",
                     data=to_excel(pd.DataFrame(st.session_state.batch_results)),
-                    file_name="deep_search_results.xlsx",
+                    file_name="deep_results.xlsx",
                     key="dl_final_fixed"
                 )
