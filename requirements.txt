@@ -6,4 +6,3 @@ webdriver-manager
 deep-translator
 xlsxwriter
 setuptools
-packaging
