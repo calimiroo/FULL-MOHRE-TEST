@@ -1,6 +1,3 @@
-أكيد! إليك الكود بعد تطبيق التعديلات المطلوبة. قمت بدمج دالتين `get_driver` و `setup_driver` في دالة واحدة محدثة تستخدم `webdriver-manager` لتجنب مشكلة عدم التوافق، مع الحفاظ على باقي وظائف الكود.
-
-```python
 import streamlit as st
 import pandas as pd
 import time
