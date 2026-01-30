@@ -1,9 +1,8 @@
 streamlit
 pandas
 selenium
-webdriver-manager
-altair<5
+undetected-chromedriver
+deep-translator
 openpyxl
 xlsxwriter
-deep-translator
-undetected-chromedriver
+altair<5
