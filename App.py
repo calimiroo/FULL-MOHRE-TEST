@@ -1,7 +1,9 @@
 import streamlit as st
 import pandas as pd
 import time
-import undetected_chromedriver as uc
+from selenium import webdriver
+from selenium.webdriver.chrome.service import Service
+from selenium.webdriver.chrome.options import Options
 from selenium.webdriver.common.by import By
 from selenium.webdriver.support.ui import WebDriverWait
 from selenium.webdriver.support import expected_conditions as EC
@@ -11,7 +13,6 @@ from deep_translator import GoogleTranslator
 import re
 import io
 import random
-from selenium import webdriver
 
 # --- إعداد الصفحة --- 
 st.set_page_config(page_title="MOHRE Portal", layout="wide") 
@@ -89,7 +90,7 @@ def translate_to_english(text):
         return text
 
 def get_driver():
-    options = uc.ChromeOptions()
+    options = Options()
     options.add_argument('--headless=new')
     options.add_argument('--no-sandbox')
     options.add_argument('--disable-dev-shm-usage')
@@ -99,16 +100,8 @@ def get_driver():
     options.add_argument("--disable-plugins-discovery")
     options.add_argument("--disable-images")
 
-    # ⚙️ التعديل المطلوب: استخدام Chromium المثبت في النظام مع chromedriver المطابق
-    driver = uc.Chrome(
-        options=options,
-        headless=True,
-        use_subprocess=False,
-        # ← يجبر استخدام chromedriver المثبت مسبقًا في PATH (متوافق مع Chromium 144)
-        driver_executable_path=None,
-        # ← يحدد مسار Chromium المثبت في Streamlit Cloud
-        browser_executable_path="/usr/bin/chromium"
-    )
+    # ⚠️ هذا هو الحل: استخدام Chrome العادي مع Service() لتحديد chromedriver من PATH
+    driver = webdriver.Chrome(service=Service(), options=options)
     return driver
 
 def apply_styling(df):
@@ -180,7 +173,7 @@ def extract_data(passport, nationality, dob_str):
             pass
 
 def deep_extract_by_card(card_number):
-    driver = get_driver()  # استخدام نفس دالة get_driver المُعدّلة
+    driver = get_driver()  # استخدام نفس دالة get_driver المُعدّلة (Chrome العادي)
     try:
         driver.get("https://inquiry.mohre.gov.ae/")
         force_english(driver) 
