@@ -89,17 +89,24 @@ def translate_to_english(text):
         return text
 
 def get_driver():
+    # ⚠️ التعديل المطلوب: تحديد إصدار chromedriver يدويًا لضمان التوافق مع Chromium 144.0.7559.96
     options = uc.ChromeOptions()
-    options.add_argument('--headless=new')  # استخدام الوضع الجديد لتحسين الأداء
+    options.add_argument('--headless=new')
     options.add_argument('--no-sandbox')
     options.add_argument('--disable-dev-shm-usage')
     options.add_argument('--disable-gpu')
     options.add_argument("--window-size=1920,1080")
     options.add_argument("--disable-extensions")
     options.add_argument("--disable-plugins-discovery")
-    options.add_argument("--disable-images")  # اختياري: لتسريع التحميل
-    # لا تحدد executable_path - سيقوم undetected_chromedriver بالتنزيل التلقائي عند الحاجة
-    driver = uc.Chrome(options=options, headless=True, use_subprocess=False)
+    options.add_argument("--disable-images")
+
+    # ⚙️ تم إضافة وسيطة 'version' لتحديد إصدار chromedriver المطلوب
+    driver = uc.Chrome(
+        options=options,
+        headless=True,
+        use_subprocess=False,
+        version="144.0.7559.96"  # ← هذا هو التعديل المطلوب
+    )
     return driver
 
 def apply_styling(df):
