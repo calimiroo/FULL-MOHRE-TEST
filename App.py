@@ -89,7 +89,6 @@ def translate_to_english(text):
         return text
 
 def get_driver():
-    # ⚠️ التعديل المطلوب: تحديد إصدار chromedriver يدويًا لضمان التوافق مع Chromium 144.0.7559.96
     options = uc.ChromeOptions()
     options.add_argument('--headless=new')
     options.add_argument('--no-sandbox')
@@ -100,12 +99,15 @@ def get_driver():
     options.add_argument("--disable-plugins-discovery")
     options.add_argument("--disable-images")
 
-    # ⚙️ تم إضافة وسيطة 'version' لتحديد إصدار chromedriver المطلوب
+    # ⚙️ التعديل المطلوب: استخدام Chromium المثبت في النظام مع chromedriver المطابق
     driver = uc.Chrome(
         options=options,
         headless=True,
         use_subprocess=False,
-        version="144.0.7559.96"  # ← هذا هو التعديل المطلوب
+        # ← يجبر استخدام chromedriver المثبت مسبقًا في PATH (متوافق مع Chromium 144)
+        driver_executable_path=None,
+        # ← يحدد مسار Chromium المثبت في Streamlit Cloud
+        browser_executable_path="/usr/bin/chromium"
     )
     return driver
 
