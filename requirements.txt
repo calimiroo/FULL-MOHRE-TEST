@@ -1,9 +1,0 @@
-streamlit
-pandas
-selenium
-webdriver-manager
-altair<5
-openpyxl
-xlsxwriter
-deep-translator
-undetected-chromedriver
