@@ -1,2 +1,2 @@
-undetected-chromedriver
-webdriver-manager
+chromium
+chromium-driver
