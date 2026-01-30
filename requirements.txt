@@ -1,6 +1,3 @@
 streamlit
-pandas
-undetected-chromedriver
-webdriver-manager
-deep-translator
 selenium
+undetected-chromedriver
