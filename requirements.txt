@@ -1,4 +1,5 @@
-streampandas
+streamlit
+pandas
 selenium
 undetected-chromedriver
 deep-translator
