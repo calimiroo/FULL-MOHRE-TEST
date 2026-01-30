@@ -12,9 +12,6 @@ import re
 import io
 import random
 from selenium import webdriver
-from selenium.webdriver.chrome.service import Service
-from webdriver_manager.chrome import ChromeDriverManager
-from webdriver_manager.core.os_manager import ChromeType
 
 # --- إعداد الصفحة --- 
 st.set_page_config(page_title="MOHRE Portal", layout="wide") 
@@ -93,20 +90,16 @@ def translate_to_english(text):
 
 def get_driver():
     options = uc.ChromeOptions()
-    options.add_argument('--headless')
+    options.add_argument('--headless=new')  # استخدام الوضع الجديد لتحسين الأداء
     options.add_argument('--no-sandbox')
     options.add_argument('--disable-dev-shm-usage')
     options.add_argument('--disable-gpu')
-    return uc.Chrome(options=options, headless=True, use_subprocess=False)
-
-def setup_driver():
-    options = webdriver.ChromeOptions()
-    options.add_argument("--headless")
-    options.add_argument("--no-sandbox")
-    options.add_argument("--disable-dev-shm-usage")
-    options.add_argument("--disable-gpu")
-    options.add_argument("--lang=en-US")
-    driver = webdriver.Chrome(service=Service(ChromeDriverManager(chrome_type=ChromeType.CHROMIUM).install()), options=options)
+    options.add_argument("--window-size=1920,1080")
+    options.add_argument("--disable-extensions")
+    options.add_argument("--disable-plugins-discovery")
+    options.add_argument("--disable-images")  # اختياري: لتسريع التحميل
+    # لا تحدد executable_path - سيقوم undetected_chromedriver بالتنزيل التلقائي عند الحاجة
+    driver = uc.Chrome(options=options, headless=True, use_subprocess=False)
     return driver
 
 def apply_styling(df):
@@ -178,7 +171,7 @@ def extract_data(passport, nationality, dob_str):
             pass
 
 def deep_extract_by_card(card_number):
-    driver = setup_driver()
+    driver = get_driver()  # استخدام نفس دالة get_driver المُعدّلة
     try:
         driver.get("https://inquiry.mohre.gov.ae/")
         force_english(driver) 
