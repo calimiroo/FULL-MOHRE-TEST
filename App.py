@@ -1,14 +1,3 @@
-أكيد! إليك الكود النهائي بعد تطبيق التعديلات اللازمة لضمان عمله بدون مشاكل في بيئة مثل Streamlit Cloud.
-
-**التعديلات المطبقة:**
-
-1.  **استخدام `webdriver-manager`:** تم استبدال الاستخدام الثابت لـ `chromedriver` بـ `webdriver-manager` لضمان تثبيت وإدارة إصدار `chromedriver` المتوافق تلقائيًا مع إصدار `chromium` المتوفر في النظام.
-2.  **دمج الدالتين `get_driver` و `setup_driver`:** تم إنشاء دالة `_get_chrome_service_and_options` تُستخدم من قِبل كل من `get_driver` و `setup_driver` لضمان استخدام نفس الإعدادات وتجنب التكرار.
-3.  **إضافة خيارات متصفح ضرورية:** تمت إضافة خيارات مثل `--no-sandbox`, `--disable-dev-shm-usage`, `--disable-gpu`, `--disable-extensions`, `--disable-plugins-discovery`, `--disable-images` لتحسين الاستقرار في بيئات السحابة.
-4.  **استخدام `Service` بشكل صريح:** يتم تمرير مسار `chromedriver` الذي يُنشئه `webdriver-manager` إلى `Service` لضمان التحكم الكامل في المحرك المستخدم.
-5.  **تحسين التسجيل (`logging`):** تم إضافة تسجيل للأحداث لتسهيل تتبع أي مشاكل قد تحدث في المستقبل.
-
-```python
 import streamlit as st
 import pandas as pd
 import time
